@@ -1,0 +1,184 @@
+# ServiceFormAI OS - Docker Compose Configuration
+# For local development and evaluation deployments
+#
+# IMPORTANT: This is NOT for production HA deployments.
+# For production, use Kubernetes with the provided Helm chart.
+#
+# Quick Start:
+#   1. Copy .env.example to .env
+#   2. Run: docker-compose up -d
+#   3. Access: http://localhost:3000
+#
+# Stop: docker-compose down
+# Reset: docker-compose down -v (WARNING: Deletes all data)
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # Frontend Application (React + Nginx)
+  # ==========================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: serviceformai-app
+    ports:
+      - "${APP_PORT:-3000}:8080"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+
+  # ==========================================================================
+  # PostgreSQL Database
+  # ==========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: serviceformai-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-serviceformai}
+      POSTGRES_USER: ${POSTGRES_USER:-serviceformai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_in_production}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/db-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-serviceformai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+
+  # ==========================================================================
+  # Redis Cache & Sessions
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: serviceformai-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme_in_production}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+
+  # ==========================================================================
+  # LocalStack — AWS-compatible services for local dev/test
+  # Provides: S3 (document storage), SQS (queue), SES (email), SNS
+  # Access:   http://localhost:4566
+  # Dashboard: http://localhost:4566/_localstack/health
+  # ==========================================================================
+  localstack:
+    image: localstack/localstack:3
+    container_name: serviceformai-localstack
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      - SERVICES=s3,sqs,ses,sns
+      - DEBUG=${LOCALSTACK_DEBUG:-0}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-ap-south-1}
+      - PERSISTENCE=1
+      - LOCALSTACK_HOST=localstack
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+
+  # ==========================================================================
+  # MinIO (S3-compatible Object Storage) — kept for direct non-AWS workflows
+  # ==========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: serviceformai-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-changeme_in_production}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+
+  # ==========================================================================
+  # Adminer (Database Management UI)
+  # Optional - Remove in production
+  # Access: http://localhost:8080
+  # ==========================================================================
+  adminer:
+    image: adminer:latest
+    container_name: serviceformai-adminer
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - serviceformai-network
+    profiles:
+      - dev # Only starts with: docker-compose --profile dev up
+
+# =============================================================================
+# Volumes for Data Persistence
+# =============================================================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  minio-data:
+    driver: local
+  localstack-data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  serviceformai-network:
+    driver: bridge

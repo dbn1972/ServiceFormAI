@@ -1,0 +1,38 @@
+Thank you for installing ServiceFormAI OS!
+
+Release: {{ .Release.Name }}
+Version: {{ .Chart.AppVersion }}
+
+GETTING STARTED
+===============
+
+1. Get the application URLs:
+
+{{- if .Values.ingress.enabled }}
+  App URL: https://{{ (index .Values.ingress.hosts 0).host }}
+  API URL: https://{{ (index .Values.ingress.hosts 0).host }}/api/v1
+{{- else }}
+  Port-forward to access locally:
+    kubectl port-forward svc/{{ include "serviceformai.fullname" . }}-frontend 3000:3000
+    kubectl port-forward svc/{{ include "serviceformai.fullname" . }}-backend 3001:3001
+  Then visit: http://localhost:3000
+{{- end }}
+
+2. Check service health:
+  kubectl get pods -l app.kubernetes.io/name={{ include "serviceformai.name" . }}
+
+3. View logs:
+  kubectl logs -l app.kubernetes.io/component=backend --tail=100 -f
+  kubectl logs -l app.kubernetes.io/component=frontend --tail=100 -f
+
+ENTERPRISE READINESS
+====================
+Run the readiness check from the backend:
+  GET /api/v1/health — overall health
+  GET /api/v1/ready — readiness probe
+  GET /api/v1/metrics — Prometheus metrics
+
+SUPPORT
+=======
+Documentation: https://docs.serviceformai.in
+Support: https://support.serviceformai.in

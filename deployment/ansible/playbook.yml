@@ -1,0 +1,187 @@
+---
+# ServiceFormAI OS — Ansible Deployment Playbook
+# Volume 11 §8 — Ansible-based VM Deployment
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbook.yml
+#   ansible-playbook -i inventory.yml playbook.yml --tags setup
+#   ansible-playbook -i inventory.yml playbook.yml --tags upgrade
+#   ansible-playbook -i inventory.yml playbook.yml -e "target_version=1.2.0"
+
+- name: ServiceFormAI OS — Full Stack Deployment
+  hosts: serviceformai_servers
+  become: true
+  gather_facts: true
+  vars:
+    app_dir: /opt/serviceformai
+    app_user: serviceformai
+    docker_compose_version: "2.24.0"
+    target_version: "latest"
+
+  pre_tasks:
+    - name: Check target OS
+      assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+          - ansible_memtotal_mb >= 3800
+        fail_msg: "Unsupported OS or insufficient memory (need 4GB+)"
+
+  tasks:
+    # ── System Prerequisites ──────────────────────────────────────────────────
+    - name: Install system packages (Debian/Ubuntu)
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - openssl
+          - git
+          - unzip
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+      tags: setup
+
+    - name: Install system packages (RedHat/CentOS)
+      yum:
+        name:
+          - curl
+          - ca-certificates
+          - openssl
+          - git
+          - unzip
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags: setup
+
+    # ── Docker ────────────────────────────────────────────────────────────────
+    - name: Add Docker GPG key (Debian)
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      when: ansible_os_family == "Debian"
+      tags: setup
+
+    - name: Add Docker repository (Debian)
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+        state: present
+      when: ansible_os_family == "Debian"
+      tags: setup
+
+    - name: Install Docker CE
+      package:
+        name: docker-ce
+        state: present
+      tags: setup
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+      tags: setup
+
+    # ── Application User ──────────────────────────────────────────────────────
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        groups: docker
+        system: true
+        shell: /bin/bash
+        home: "{{ app_dir }}"
+        create_home: true
+      tags: setup
+
+    # ── Deploy Application ────────────────────────────────────────────────────
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0750"
+      tags: setup, deploy
+
+    - name: Copy docker-compose.yml
+      copy:
+        src: "{{ playbook_dir }}/../../docker-compose.yml"
+        dest: "{{ app_dir }}/docker-compose.yml"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0640"
+      tags: deploy
+
+    - name: Copy .env file (vault-encrypted)
+      copy:
+        src: "{{ env_file | default(playbook_dir + '/files/.env') }}"
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: "0600"
+      tags: deploy
+      no_log: true
+
+    - name: Pull latest images
+      docker_compose:
+        project_src: "{{ app_dir }}"
+        pull: true
+      become_user: "{{ app_user }}"
+      tags: deploy
+
+    - name: Run database migrations
+      command: docker compose exec -T backend npm run migration:run
+      args:
+        chdir: "{{ app_dir }}"
+      become_user: "{{ app_user }}"
+      tags: deploy
+
+    - name: Start services
+      docker_compose:
+        project_src: "{{ app_dir }}"
+        state: present
+        recreate: always
+      become_user: "{{ app_user }}"
+      tags: deploy
+
+    # ── Firewall ──────────────────────────────────────────────────────────────
+    - name: Configure UFW (allow HTTP, HTTPS, SSH)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "22"
+        - "80"
+        - "443"
+      when: ansible_os_family == "Debian"
+      tags: setup
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+      when: ansible_os_family == "Debian"
+      tags: setup
+
+    # ── Validation ────────────────────────────────────────────────────────────
+    - name: Run post-install validation
+      command: bash {{ app_dir }}/deployment/scripts/validate.sh --post
+      become_user: "{{ app_user }}"
+      register: validation_result
+      changed_when: false
+      failed_when: validation_result.rc != 0
+      tags: validate
+
+    - name: Print validation output
+      debug:
+        msg: "{{ validation_result.stdout_lines }}"
+      tags: validate
+
+  handlers:
+    - name: restart docker
+      service:
+        name: docker
+        state: restarted

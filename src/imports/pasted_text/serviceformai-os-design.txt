@@ -1,0 +1,816 @@
+You are a world-class product designer, GovTech UX expert, fintech UX designer, digital public infrastructure designer, service design expert, accessibility expert, design systems architect, and Figma design lead.
+
+Your task is to design a 10/10 Figma product experience for:
+
+# ServiceFormAI OS
+
+---
+
+# Product Definition
+
+ServiceFormAI OS is a DigiLocker-first, federated Citizen Service Intelligence Network where governments, municipalities, banks, universities, utilities, and private or public-private service providers publish schemes, services, benefits, renewals, and grievances once; citizens discover or receive relevant services through trusted channels; verified DigiLocker documents are reused with explicit consent; applications route to the correct federal, state, local, or private workflow; and citizens track every step until final resolution.
+
+This is not a form builder.
+
+It is the intelligence and execution layer for citizen services.
+
+---
+
+# Design Goal
+
+Design a product that feels like:
+
+- Digital public infrastructure
+- Trusted citizen wallet
+- Modern fintech-grade platform
+- Government service operating system
+- Workflow and case management system
+- Accessible, low-literacy-friendly citizen assistant
+
+The design should be world-class enough to show to:
+
+- Government leadership
+- DigiLocker stakeholders
+- UMANG/state portal stakeholders
+- Municipal commissioners
+- Bank executives
+- Investors
+- Product teams
+- Engineering teams
+- System integrators
+
+---
+
+# Core UX Thesis
+
+The product should move from:
+
+“Find a form and fill 40 fields”
+
+to:
+
+“We found a relevant service. Your verified documents are ready. Consent, confirm missing details, submit, and track status.”
+
+Design around these principles:
+
+1. Trust before transaction
+2. Consent before data sharing
+3. Reuse before re-upload
+4. Eligibility before long forms
+5. Guidance before complexity
+6. Status always visible
+7. Citizen language over bureaucracy
+8. Officers need speed and clarity
+9. Admins need governance and audit
+10. Local governments need templates, not complexity
+
+---
+
+# Visual Direction
+
+Use a clean, trusted, modern visual system.
+
+Style:
+
+- White and soft neutral backgrounds
+- Deep blue/indigo primary
+- Green for verified/success
+- Amber for pending/action needed
+- Red for rejected/urgent
+- Soft cards
+- Clear hierarchy
+- Strong status indicators
+- Minimal clutter
+- Large readable typography
+- Accessible contrast
+- Large touch targets
+- Mobile-first citizen journeys
+- Dense but usable admin dashboards
+
+The product should not look like generic SaaS.
+
+It should feel like serious citizen infrastructure.
+
+---
+
+# Required Figma Pages
+
+Create these Figma pages:
+
+1. Cover
+2. Product Ecosystem Map
+3. Design System
+4. Citizen Service Feed
+5. DigiLocker Wallet and Consent
+6. Guided Application Journey
+7. Status and Deficiency Flow
+8. Grievance Journey
+9. Tenant Workflow OS
+10. Municipality Pack
+11. Service Manifest Studio
+12. Consumer Portal
+13. Plugin Marketplace
+14. Governance Console
+15. Prototype Flows
+16. Responsive Layouts
+17. Design Annotations
+
+---
+
+# Page 1: Cover
+
+Create a premium cover.
+
+Include:
+
+- Product name: ServiceFormAI OS
+- Tagline: Share once. Apply many times. Track everywhere.
+- Subtitle: Citizen Service Intelligence Network for schemes, services, grievances, benefits, and trusted document reuse.
+- Visual metaphor: citizen wallet connected to DigiLocker, services, municipalities, departments, workflows, banks, plugins, and outputs.
+- Badges:
+  - DigiLocker-first MVP
+  - Citizen Service Feed
+  - Service Manifest Protocol
+  - Eligibility Intelligence
+  - Consent-based Document Reuse
+  - Multi-tenant Workflow OS
+  - Grievances as Services
+  - Plugin-first Architecture
+
+---
+
+# Page 2: Product Ecosystem Map
+
+Design an ecosystem map showing:
+
+- Citizen
+- DigiLocker
+- UMANG
+- State portal
+- Municipal app
+- WhatsApp bot
+- CSC/service center
+- ServiceFormAI OS
+- Citizen Service Feed
+- Service Registry
+- Eligibility Engine
+- Notification Engine
+- Consent Engine
+- Document Reuse Layer
+- Dynamic Journey Renderer
+- Workflow OS
+- Plugin Marketplace
+- Governance Console
+- Central government
+- State government
+- Municipality
+- Department
+- Bank/private producer
+- Payment provider
+- SMS/email/WhatsApp provider
+- eSign provider
+- GIS/location plugin
+- AI assistant
+
+Show flows:
+
+1. Producer publishes service
+2. Service is certified
+3. Citizen gets recommendation
+4. Citizen consents to wallet reuse
+5. Application is submitted
+6. Workflow/API processes it
+7. Status returns
+8. Output is delivered digitally
+
+---
+
+# Page 3: Design System
+
+Create a complete design system.
+
+## Colors
+
+Define:
+
+- Primary
+- Secondary
+- Success
+- Warning
+- Error
+- Info
+- Neutral scale
+- Verified document state
+- Pending state
+- Deficiency state
+- Approved state
+- Rejected state
+- Grievance active state
+- Consent active state
+- Expired document state
+
+## Typography
+
+Define:
+
+- Display
+- Page title
+- Section title
+- Card title
+- Body
+- Caption
+- Label
+- Button
+- Monospace for JSON/API
+
+## Components
+
+Create reusable components:
+
+- Button
+- Input
+- Select
+- Radio group
+- Checkbox
+- Date picker
+- Search bar
+- Filter bar
+- Service card
+- Scheme recommendation card
+- Eligibility result card
+- Consent card
+- Document card
+- Verified field
+- Prefilled field
+- Stepper
+- Timeline
+- Status badge
+- SLA badge
+- Certification badge
+- Notification card
+- Acknowledgement card
+- Deficiency notice
+- Grievance card
+- Application row
+- Officer task card
+- Workflow stage card
+- Plugin card
+- Audit log item
+- API endpoint card
+- JSON preview panel
+- Empty state
+- Error state
+- Success state
+- Low-literacy help block
+- Assisted mode banner
+
+## Icons
+
+Create or use icons for:
+
+- Wallet
+- Verified document
+- Consent
+- Scheme
+- Service
+- Grievance
+- Municipality
+- Workflow
+- Officer
+- Payment
+- Notification
+- Certificate
+- API
+- Plugin
+- Security
+- Audit
+- AI assistant
+- Location
+- SLA
+
+---
+
+# Page 4: Citizen Service Feed
+
+Design mobile-first screens.
+
+## 4.1 Citizen Dashboard
+
+Sections:
+
+### For You
+
+Cards:
+
+- “You may be eligible for Student Scholarship”
+- “Income certificate expires in 20 days”
+- “Streetlight grievance in your ward has been resolved”
+- “Trade license renewal due”
+
+### Continue
+
+- Draft application
+- Deficiency pending
+- Payment pending
+- Action required
+
+### Your Benefits
+
+- Approved benefits
+- Sanctioned payments
+- Certificates issued
+
+### Your Grievances
+
+- Open grievances
+- Assigned officer
+- SLA status
+- Reopen option
+
+### Your Documents
+
+- Verified documents
+- Recently used
+- Missing documents
+- Expiring documents
+
+### Consent History
+
+- Recently shared data
+- Active consents
+- Revoke option
+
+---
+
+# Page 5: DigiLocker Wallet and Consent
+
+Design the wallet and consent experience.
+
+## 5.1 Wallet Home
+
+Show:
+
+- Verified identity
+- Document categories
+- Recently used documents
+- Documents used in applications
+- Expiring documents
+- Recommended services based on opted-in eligibility signals
+
+## 5.2 Consent Screen
+
+Critical screen.
+
+Title:
+
+“Use your DigiLocker documents for this application?”
+
+Show:
+
+- Data requested
+- Documents requested
+- Purpose
+- Producer receiving data
+- Consumer channel
+- Validity
+- Required/optional toggles
+- Consent receipt preview
+- Revoke later explanation
+
+Use plain language.
+
+Avoid legal-heavy wording.
+
+## 5.3 Why Am I Seeing This?
+
+For recommendations, design a transparency screen:
+
+“You are seeing this scholarship because you opted in to recommendations and your wallet has a student certificate, domicile certificate, and income certificate.”
+
+Show:
+
+- Signals used
+- Signals not shared yet
+- How to turn off recommendations
+- Privacy explanation
+
+---
+
+# Page 6: Guided Application Journey
+
+Design a world-class form journey.
+
+The flow:
+
+1. Service intro
+2. Eligibility gate
+3. Consent
+4. Document reuse
+5. Prefilled form
+6. Missing details
+7. Review
+8. Declaration
+9. Submit
+10. Acknowledgement
+
+## 6.1 Service Detail
+
+Show:
+
+- Service name
+- Producer
+- Verified service badge
+- Who can apply
+- Documents required
+- Estimated time
+- Fee
+- Processing time
+- Apply button
+
+## 6.2 Eligibility Gate
+
+Show:
+
+- 3–5 simple questions
+- Instant result
+- Confirmed/likely/needs info state
+- “You may continue” CTA
+- “Need more information” state
+
+## 6.3 Prefilled Form
+
+Show fields with:
+
+- Verified badge
+- Source label
+- Last updated
+- Editable/non-editable state
+- Why needed help
+- Inline validation
+
+Example:
+
+Full Name  
+Ananya Sharma  
+Verified from DigiLocker · Editable
+
+## 6.4 Document Reuse
+
+Show document cards:
+
+- Income certificate
+- Student certificate
+- Domicile certificate
+- Bank proof
+- Identity proof
+
+States:
+
+- Available in wallet
+- Attached
+- Missing
+- Expired
+- Upload required
+- Verification failed
+
+## 6.5 Review and Submit
+
+Show:
+
+- Application summary
+- Documents shared
+- Consent summary
+- Edit links
+- Declaration checkbox
+- Submit button
+
+## 6.6 Acknowledgement
+
+Show:
+
+- Success message
+- Acknowledgement number
+- Submitted date
+- Expected processing time
+- Track status button
+- Download acknowledgement
+- Save to DigiLocker
+
+---
+
+# Page 7: Status and Deficiency Flow
+
+Design citizen tracking screens.
+
+## Status Timeline
+
+Stages:
+
+- Submitted
+- Under scrutiny
+- Document verification
+- Deficiency raised
+- Resubmitted
+- Approved
+- Benefit sanctioned
+- Output issued
+
+Show:
+
+- Current status
+- Next action
+- SLA date
+- Officer remarks
+- Help option
+
+## Deficiency Resubmission
+
+Show:
+
+- What is missing
+- Why it is needed
+- Officer remarks
+- Attach from DigiLocker
+- Upload alternative
+- Submit response
+
+---
+
+# Page 8: Grievance Journey
+
+Design grievance as a service journey.
+
+Example: Streetlight complaint.
+
+Screens:
+
+1. Select grievance category
+2. Capture location
+3. Add photo/evidence
+4. Submit grievance
+5. Acknowledgement
+6. Track status
+7. Resolution proof
+8. Confirm or reopen
+
+Status lifecycle:
+
+SUBMITTED → ASSIGNED → IN_PROGRESS → RESOLVED → CITIZEN_CONFIRMED → CLOSED
+
+Alternative:
+
+SUBMITTED → ASSIGNED → IN_PROGRESS → RESOLVED → REOPENED → ESCALATED → CLOSED
+
+---
+
+# Page 9: Tenant Workflow OS
+
+Design desktop screens for departments and municipalities.
+
+## Tenant Dashboard
+
+Show:
+
+- Total applications
+- Pending review
+- Deficiency raised
+- Approved
+- Rejected
+- SLA breaches
+- Open grievances
+- Average processing time
+- Officer workload
+- Workflow health
+- Integration health
+
+## Application Queue
+
+Show:
+
+- Search
+- Filters
+- Status tabs
+- SLA indicators
+- Assigned officer
+- Current stage
+- Priority
+- Open action
+
+## Application Detail
+
+Split layout:
+
+Left:
+
+- Applicant details
+- Form data
+- Documents
+- Consent record
+
+Right:
+
+- Workflow timeline
+- Officer actions
+- Notes
+- Citizen-visible remarks
+- Audit log
+
+Actions:
+
+- Approve
+- Reject
+- Raise deficiency
+- Reassign
+- Escalate
+- Generate output
+
+---
+
+# Page 10: Municipality Pack
+
+Design a municipality workspace.
+
+Screens:
+
+- Municipality dashboard
+- Ward map placeholder
+- Grievance queue
+- Service templates
+- SLA dashboard
+- Officer assignment
+- Resolution proof viewer
+
+Templates:
+
+- Birth certificate
+- Death certificate
+- Trade license
+- Water connection
+- Streetlight complaint
+- Garbage complaint
+- Road repair complaint
+- Building permission
+
+---
+
+# Page 11: Service Manifest Studio
+
+Design producer tools.
+
+Screens:
+
+1. Service dashboard
+2. Create service wizard
+3. Eligibility builder
+4. Form builder
+5. Journey builder
+6. Workflow builder
+7. Notification rules
+8. Jurisdiction router
+9. Manifest JSON preview
+10. Certification checklist
+11. Sandbox preview
+
+The Manifest Studio must make the Service Manifest feel like the core product IP.
+
+---
+
+# Page 12: Consumer Portal
+
+Design for DigiLocker/UMANG/state portal admins.
+
+Screens:
+
+- Service marketplace
+- Service detail
+- Subscribe to service
+- Renderer SDK
+- API credentials
+- Usage analytics
+- Sandbox testing
+
+---
+
+# Page 13: Plugin Marketplace
+
+Design plugin marketplace.
+
+Categories:
+
+- Identity
+- Document wallet
+- SMS
+- Email
+- WhatsApp
+- Payment
+- eSign
+- Verification
+- Storage
+- Analytics
+- AI
+- OCR
+- GIS/location
+- IVR
+
+Plugin card shows:
+
+- Name
+- Provider
+- Category
+- Certification badge
+- Sandbox available
+- SLA
+- Install/configure button
+
+---
+
+# Page 14: Governance Console
+
+Design platform operator screens.
+
+Include:
+
+- Producer approvals
+- Consumer approvals
+- Manifest certification
+- Plugin certification
+- Security monitoring
+- Consent logs
+- Audit logs
+- SLA monitoring
+- Policy violations
+- Regulatory reporting
+
+---
+
+# Page 15: Prototype Flows
+
+Create clickable prototype flows:
+
+1. Citizen sees recommended scholarship
+2. Citizen checks eligibility
+3. Citizen consents to DigiLocker document reuse
+4. Citizen submits prefilled application
+5. Citizen receives acknowledgement
+6. Officer reviews application
+7. Officer raises deficiency
+8. Citizen resubmits
+9. Officer approves
+10. Citizen sees final output
+11. Citizen reports municipal grievance
+12. Municipal officer resolves grievance
+13. Producer creates Service Manifest
+14. Consumer subscribes to service
+
+---
+
+# Page 16: Responsive Layouts
+
+Create variants for:
+
+- Mobile citizen screens
+- Tablet citizen screens
+- Desktop officer console
+- Desktop admin console
+- Assisted service center mode
+- Low-bandwidth mode
+
+---
+
+# Page 17: Design Annotations
+
+Explain:
+
+- Why citizen feed matters
+- Why consent is designed this way
+- Why document reuse is central
+- Why eligibility appears before long forms
+- Why grievances are services
+- Why status is always visible
+- How DigiLocker-first expands to UMANG/state/local channels
+- How officers process applications
+- How local governments use Municipality Pack
+- How the design protects privacy and trust
+
+---
+
+# 10/10 Acceptance Criteria
+
+The design must score 10/10 on:
+
+- Trust
+- Citizen clarity
+- Consent transparency
+- Document reuse UX
+- Eligibility UX
+- Form completion simplicity
+- Grievance handling
+- Officer productivity
+- Government readiness
+- Accessibility
+- Low-literacy usability
+- Enterprise polish
+- Product storytelling
+- Demo quality
+
+Make the design world-class, realistic, and implementation-ready.

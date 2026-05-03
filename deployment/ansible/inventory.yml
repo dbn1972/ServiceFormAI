@@ -1,0 +1,42 @@
+---
+# ServiceFormAI OS — Ansible Inventory
+# Edit this file to match your server(s)
+#
+# Usage:
+#   ansible-playbook -i inventory.yml playbook.yml
+#   ansible-inventory -i inventory.yml --list
+
+all:
+  children:
+    serviceformai_servers:
+      hosts:
+
+        # ── Single-node (Docker Compose) deployment ──────────────────────────
+        # Replace with your server's IP or hostname
+        prod-server-01:
+          ansible_host: YOUR_SERVER_IP
+          ansible_user: ubuntu               # Or ec2-user for Amazon Linux
+          ansible_ssh_private_key_file: ~/.ssh/serviceformai-key.pem
+          ansible_python_interpreter: /usr/bin/python3
+
+        # ── Uncomment for multi-node setup ──────────────────────────────────
+        # prod-server-02:
+        #   ansible_host: YOUR_SECOND_SERVER_IP
+        #   ansible_user: ubuntu
+        #   ansible_ssh_private_key_file: ~/.ssh/serviceformai-key.pem
+
+      vars:
+        # Application configuration
+        app_dir: /opt/serviceformai
+        app_user: serviceformai
+
+        # Set this to the path of your encrypted .env file
+        # encrypt with: ansible-vault encrypt .env
+        env_file: "{{ playbook_dir }}/files/.env"
+
+        # Target version (use 'latest' or specific version like '1.2.0')
+        target_version: "latest"
+
+  # ── Global variables ───────────────────────────────────────────────────────
+  vars:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"

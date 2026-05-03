@@ -1,0 +1,561 @@
+# ServiceFormAI OS - Helm Chart Values
+# Version: 1.0.0
+# Purpose: Production Kubernetes deployment configuration
+#
+# Usage:
+#   helm install serviceformai ./kubernetes -f values.yaml
+#   helm upgrade serviceformai ./kubernetes -f values.yaml
+#
+# Environment-specific overrides:
+#   - values-dev.yaml
+#   - values-staging.yaml
+#   - values-production.yaml
+
+global:
+  # Deployment metadata
+  name: serviceformai
+  environment: production
+  region: in-central-1
+  
+  # Image registry
+  imageRegistry: docker.io
+  imagePullSecrets: []
+  
+  # Networking
+  domain: serviceformai.gov.in
+  tlsEnabled: true
+
+# =============================================================================
+# FRONTEND (React Application)
+# =============================================================================
+
+frontend:
+  enabled: true
+  
+  replicaCount: 3
+  
+  image:
+    repository: serviceformai/frontend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3000
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  env:
+    VITE_API_URL: https://api.serviceformai.gov.in/api/v1
+    VITE_APP_NAME: ServiceFormAI OS
+    VITE_ENABLE_ANALYTICS: "false"
+
+# =============================================================================
+# BACKEND (NestJS API)
+# =============================================================================
+
+backend:
+  enabled: true
+  
+  replicaCount: 3
+  
+  image:
+    repository: serviceformai/backend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+    annotations: {}
+  
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 75
+  
+  livenessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 3001
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 3001
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  # Environment variables (non-sensitive)
+  env:
+    NODE_ENV: production
+    PORT: "3001"
+    API_PREFIX: api/v1
+    LOG_LEVEL: info
+    ENABLE_METRICS: "true"
+    TENANT_MODE: multi
+  
+  # Secrets (managed separately via Kubernetes Secrets)
+  secrets:
+    # Database
+    DATABASE_URL: ""  # From external secret
+    
+    # Redis
+    REDIS_URL: ""     # From external secret
+    
+    # JWT
+    JWT_SECRET: ""    # From external secret
+    JWT_EXPIRES_IN: 7d
+    
+    # Object Storage
+    S3_ENDPOINT: ""
+    S3_ACCESS_KEY: ""
+    S3_SECRET_KEY: ""
+    S3_BUCKET: serviceformai-uploads
+    S3_REGION: in-central-1
+
+# =============================================================================
+# WORKERS (Background Job Processors)
+# =============================================================================
+
+workers:
+  enabled: true
+  
+  replicaCount: 2
+  
+  image:
+    repository: serviceformai/backend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  
+  command: ["node", "dist/workers/main.js"]
+  
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+# =============================================================================
+# POSTGRESQL (External Managed Database)
+# =============================================================================
+
+postgresql:
+  # Use external managed PostgreSQL (recommended for production)
+  enabled: false
+  
+  # External PostgreSQL connection
+  external:
+    enabled: true
+    host: postgres.serviceformai.svc.cluster.local
+    port: 5432
+    database: serviceformai
+    username: serviceformai
+    # Password from Kubernetes secret
+    existingSecret: postgresql-credentials
+    existingSecretPasswordKey: password
+  
+  # HA configuration (if using in-cluster PostgreSQL)
+  replication:
+    enabled: true
+    numSynchronousReplicas: 1
+    synchronousCommit: "on"
+  
+  persistence:
+    enabled: true
+    storageClass: "fast-ssd"
+    size: 100Gi
+  
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1000m"
+    limits:
+      memory: "4Gi"
+      cpu: "2000m"
+  
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    retention: 30
+
+# =============================================================================
+# REDIS (Cache & Session Store)
+# =============================================================================
+
+redis:
+  # Use external managed Redis (recommended for production)
+  enabled: false
+  
+  # External Redis connection
+  external:
+    enabled: true
+    host: redis.serviceformai.svc.cluster.local
+    port: 6379
+    # Password from Kubernetes secret
+    existingSecret: redis-credentials
+    existingSecretPasswordKey: password
+  
+  # HA configuration (if using in-cluster Redis)
+  architecture: replication
+  sentinel:
+    enabled: true
+    quorum: 2
+  
+  master:
+    persistence:
+      enabled: true
+      storageClass: "fast-ssd"
+      size: 20Gi
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+  
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      storageClass: "fast-ssd"
+      size: 20Gi
+
+# =============================================================================
+# INGRESS (Load Balancer & TLS)
+# =============================================================================
+
+ingress:
+  enabled: true
+  
+  className: nginx
+  
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+  
+  hosts:
+    - host: serviceformai.gov.in
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: frontend
+              port: 3000
+    
+    - host: api.serviceformai.gov.in
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: backend
+              port: 3001
+  
+  tls:
+    - secretName: serviceformai-tls
+      hosts:
+        - serviceformai.gov.in
+        - api.serviceformai.gov.in
+
+# =============================================================================
+# PERSISTENT VOLUMES
+# =============================================================================
+
+persistence:
+  enabled: true
+  
+  uploads:
+    storageClass: "standard"
+    accessMode: ReadWriteMany
+    size: 500Gi
+  
+  logs:
+    storageClass: "standard"
+    accessMode: ReadWriteMany
+    size: 100Gi
+
+# =============================================================================
+# MONITORING & OBSERVABILITY
+# =============================================================================
+
+monitoring:
+  enabled: true
+  
+  # Prometheus metrics
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  # Grafana dashboards
+  grafana:
+    enabled: true
+    dashboards:
+      enabled: true
+  
+  # Loki logging
+  loki:
+    enabled: true
+  
+  # Jaeger tracing
+  tracing:
+    enabled: false
+    jaeger:
+      enabled: false
+
+# =============================================================================
+# SECURITY
+# =============================================================================
+
+security:
+  # Pod Security Policy
+  podSecurityPolicy:
+    enabled: true
+  
+  # Network Policies
+  networkPolicy:
+    enabled: true
+    ingress:
+      - from:
+        - podSelector:
+            matchLabels:
+              app: serviceformai
+    egress:
+      - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+        - podSelector:
+            matchLabels:
+              app: redis
+  
+  # Service Mesh (Istio)
+  serviceMesh:
+    enabled: false
+    mtls:
+      mode: STRICT
+  
+  # Secrets management
+  secretsManagement:
+    provider: kubernetes  # Options: kubernetes, vault, aws-secrets-manager
+    vault:
+      enabled: false
+      address: ""
+      role: ""
+
+# =============================================================================
+# BACKUP & DISASTER RECOVERY
+# =============================================================================
+
+backup:
+  enabled: true
+  
+  # Velero backup
+  velero:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    ttl: 720h              # 30 days
+    includedNamespaces:
+      - serviceformai
+  
+  # Database backups
+  database:
+    enabled: true
+    schedule: "0 */6 * * *"  # Every 6 hours
+    retention: 30
+    s3:
+      bucket: serviceformai-backups
+      region: in-central-1
+
+# =============================================================================
+# AFFINITY & TOPOLOGY
+# =============================================================================
+
+affinity:
+  # Pod anti-affinity (spread across nodes)
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app
+              operator: In
+              values:
+                - serviceformai
+        topologyKey: kubernetes.io/hostname
+  
+  # Node affinity (prefer specific node types)
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node-type
+              operator: In
+              values:
+                - application
+
+# =============================================================================
+# SERVICE ACCOUNTS & RBAC
+# =============================================================================
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: serviceformai
+
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["secrets", "configmaps"]
+      verbs: ["get", "list"]
+
+# =============================================================================
+# POD DISRUPTION BUDGET
+# =============================================================================
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# =============================================================================
+# INIT CONTAINERS
+# =============================================================================
+
+initContainers:
+  # Database migrations
+  migrations:
+    enabled: true
+    image:
+      repository: serviceformai/backend
+      tag: "1.0.0"
+    command: ["npm", "run", "migration:run"]
+
+# =============================================================================
+# JOBS & CRON JOBS
+# =============================================================================
+
+jobs:
+  # Database migration job
+  migration:
+    enabled: true
+    image:
+      repository: serviceformai/backend
+      tag: "1.0.0"
+    command: ["npm", "run", "migration:run"]
+  
+  # Seed initial data
+  seed:
+    enabled: false
+    image:
+      repository: serviceformai/backend
+      tag: "1.0.0"
+    command: ["npm", "run", "seed"]
+
+cronJobs:
+  # Cleanup old sessions
+  cleanupSessions:
+    enabled: true
+    schedule: "0 3 * * *"  # Daily at 3 AM
+    command: ["npm", "run", "cleanup:sessions"]
+  
+  # Generate reports
+  generateReports:
+    enabled: true
+    schedule: "0 4 * * 0"  # Weekly on Sunday at 4 AM
+    command: ["npm", "run", "reports:generate"]
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+configMap:
+  create: true
+  data:
+    APP_NAME: "ServiceFormAI OS"
+    LOG_LEVEL: "info"
+    TENANT_MODE: "multi"
+
+# =============================================================================
+# NOTES
+# =============================================================================
+
+# Installation:
+#   helm install serviceformai ./kubernetes -f values.yaml
+#
+# Upgrade:
+#   helm upgrade serviceformai ./kubernetes -f values.yaml
+#
+# Rollback:
+#   helm rollback serviceformai
+#
+# Uninstall:
+#   helm uninstall serviceformai
+#
+# Dry run:
+#   helm install serviceformai ./kubernetes -f values.yaml --dry-run --debug

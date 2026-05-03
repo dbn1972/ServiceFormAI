@@ -1,0 +1,243 @@
+/* Accessibility Enhancements */
+
+/* High Contrast Mode */
+.high-contrast {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 0%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 0%;
+  --primary: 240 100% 30%;
+  --primary-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+}
+
+.dark.high-contrast {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 100%;
+  --primary: 210 100% 60%;
+  --primary-foreground: 0 0% 0%;
+  --border: 0 0% 80%;
+}
+
+/* Reduce Motion */
+.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Underline Links */
+.underline-links a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.underline-links a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Hide Images */
+.hide-images img,
+.hide-images svg:not(.icon) {
+  opacity: 0.1;
+  filter: grayscale(100%);
+}
+
+.hide-images img::after {
+  content: '[Image]';
+  display: block;
+  position: absolute;
+  background: var(--muted);
+  padding: 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* Grayscale Mode */
+.grayscale-mode {
+  filter: grayscale(100%);
+}
+
+.grayscale-mode * {
+  filter: grayscale(100%);
+}
+
+/* Enhanced Focus Indicators */
+.focus-visible *:focus-visible {
+  outline: 3px solid hsl(var(--primary)) !important;
+  outline-offset: 2px !important;
+  border-radius: 4px;
+}
+
+/* Skip to Main Content */
+.skip-to-main {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 1rem 1.5rem;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  text-decoration: none;
+  border-radius: 0 0 0.5rem 0;
+}
+
+.skip-to-main:focus {
+  left: 0;
+  top: 0;
+}
+
+/* Screen Reader Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Touch Target Minimum Size (44x44px for WCAG AA) */
+button,
+a,
+[role="button"],
+[role="link"],
+input[type="checkbox"],
+input[type="radio"] {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Text Size Variants */
+.text-base {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.text-lg {
+  font-size: 1.125rem;
+  line-height: 1.75;
+}
+
+.text-xl {
+  font-size: 1.25rem;
+  line-height: 1.75;
+}
+
+/* Line Spacing Variants */
+.leading-normal {
+  line-height: 1.5;
+}
+
+.leading-relaxed {
+  line-height: 1.75;
+}
+
+.leading-loose {
+  line-height: 2;
+}
+
+/* Keyboard Navigation Highlights */
+:focus-visible {
+  outline: 3px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/* High Contrast Focus for Better Visibility */
+.high-contrast :focus-visible {
+  outline-width: 4px;
+  outline-offset: 3px;
+}
+
+/* ARIA Live Regions */
+[aria-live] {
+  position: relative;
+}
+
+/* Better Contrast for Disabled Elements */
+.high-contrast :disabled {
+  opacity: 0.7;
+  border: 2px dashed hsl(var(--muted-foreground));
+}
+
+/* Screen Reader Announcements */
+.sr-announcement {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* Color Blind Friendly Indicators */
+.status-success::before {
+  content: '✓ ';
+}
+
+.status-error::before {
+  content: '✗ ';
+}
+
+.status-warning::before {
+  content: '⚠ ';
+}
+
+/* Print Styles for Accessibility */
+@media print {
+  .no-print,
+  .skip-to-main,
+  nav,
+  button:not(.print-include) {
+    display: none !important;
+  }
+
+  a::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+    color: #666;
+  }
+
+  * {
+    background: white !important;
+    color: black !important;
+  }
+}
+
+/* Dark Mode Specific Accessibility */
+.dark {
+  /* Ensure sufficient contrast in dark mode */
+  --muted-foreground: 215 20.2% 75.1%;
+}
+
+/* Reduce Motion Preference Detection */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High Contrast Preference Detection */
+@media (prefers-contrast: high) {
+  :root {
+    --border-width: 2px;
+  }
+
+  * {
+    border-width: var(--border-width) !important;
+  }
+}
+
+/* Prefers Color Scheme */
+@media (prefers-color-scheme: dark) {
+  /* Dark mode is handled by ThemeContext */
+}
