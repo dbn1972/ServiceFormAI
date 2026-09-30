@@ -25,6 +25,7 @@ export const TEST_TENANT_ID_2 = '00000000-0000-0000-0000-000000000002';
 export const TEST_CONSUMER_ID = '00000000-0000-0000-0001-000000000001';
 export const TEST_CONSUMER_ID_2 = '00000000-0000-0000-0001-000000000002';
 export const TEST_SERVICE_ID = '00000000-0000-0000-0002-000000000001';
+export const TEST_SERVICE_RELEASE_ID = '00000000-0000-0000-0002-000000000002';
 export const TEST_APPLICATION_ID = '00000000-0000-0000-0003-000000000001';
 export const TEST_USER_ID_ADMIN = '00000000-0000-0000-0004-000000000001';
 export const TEST_USER_ID_OFFICER = '00000000-0000-0000-0004-000000000002';
@@ -253,6 +254,7 @@ export function testTenant(overrides: Partial<any> = {}) {
     consent_policy: null,
     notification_policy: null,
     integration_policy: null,
+    action_policy: null,
     created_at: new Date(),
     updated_at: new Date(),
     ...overrides,
@@ -289,15 +291,22 @@ export function testConsumerUser(overrides: Partial<any> = {}) {
 export function testTenantService(overrides: Partial<any> = {}) {
   return {
     id: TEST_SERVICE_ID,
+    current_release_id: TEST_SERVICE_RELEASE_ID,
     tenant_id: TEST_TENANT_ID,
     name: 'Birth Certificate',
     category: 'civil-records',
     description: 'Apply for a birth certificate',
-    form_schema: { fields: [{ name: 'full_name', type: 'text', required: true }] },
+    form_schema: {
+      version: '1.0',
+      fields: [
+        { id: 'full_name', type: 'text', label: 'Full Name', required: true },
+      ],
+    },
     workflow_config: { stages: ['submitted', 'review', 'approved'] },
     eligibility_rules: null,
     required_documents: null,
     backend_api_config: null,
+    manifest: null,
     published: true,
     sla_days: 7,
     fees: 0,
@@ -311,6 +320,7 @@ export function testApplication(overrides: Partial<any> = {}) {
     id: TEST_APPLICATION_ID,
     tenant_id: TEST_TENANT_ID,
     service_id: TEST_SERVICE_ID,
+    service_release_id: TEST_SERVICE_RELEASE_ID,
     consumer_id: TEST_CONSUMER_ID,
     consumer_source: 'direct',
     form_data: { full_name: 'Rahul Sharma' },

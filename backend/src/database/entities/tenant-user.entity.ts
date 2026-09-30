@@ -25,6 +25,12 @@ export class TenantUser {
   @Column({ type: 'varchar', length: 255 })
   password_hash: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  keycloak_subject: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  keycloak_issuer: string | null;
+
   @Column({ type: 'varchar', length: 50 })
   role: string;
 

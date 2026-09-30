@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { useApp } from '../context/AppContext';
 import { consumerService } from '../services/api/index';
 import { formatFileSize, validators } from '../utils/validation';
-import type { Application } from '../shared/types';
+import type { Application, TenantService } from '../shared/types';
 
 interface UploadedFile {
   id: string;
@@ -32,7 +32,41 @@ interface DocumentRequirement {
   maxSize: number;
   allowedTypes: string[];
   required: boolean;
+  uploadAllowed?: boolean;
+  acceptedSources?: string[];
+  digilockerTypes?: string[];
   file?: UploadedFile;
+}
+
+type ApplicationDocumentRecord = {
+  id: string;
+  applicationId: string;
+  documentId: string;
+  documentType: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+  uploadedAt: string;
+  status: string;
+};
+
+function normalizeToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function hasReusableSourceMatch(document: DocumentRequirement, reusableDocuments: Array<{ name: string; issuer?: string }>) {
+  const digilockerTokens = (document.digilockerTypes || []).map(normalizeToken);
+  const requirementName = normalizeToken(document.name);
+
+  return reusableDocuments.some((item) => {
+    const documentName = normalizeToken(item.name);
+    if (documentName.includes(requirementName) || requirementName.includes(documentName)) {
+      return true;
+    }
+
+    return digilockerTokens.some((token) => token.length > 0 && (documentName.includes(token) || token.includes(documentName)));
+  });
 }
 
 const initialRequirements: DocumentRequirement[] = [
@@ -43,6 +77,8 @@ const initialRequirements: DocumentRequirement[] = [
     maxSize: 5,
     allowedTypes: ['pdf', 'jpg', 'jpeg', 'png'],
     required: true,
+    uploadAllowed: true,
+    acceptedSources: ['upload'],
   },
   {
     id: 'photo',
@@ -51,6 +87,8 @@ const initialRequirements: DocumentRequirement[] = [
     maxSize: 2,
     allowedTypes: ['jpg', 'jpeg', 'png'],
     required: true,
+    uploadAllowed: true,
+    acceptedSources: ['upload'],
   },
   {
     id: 'caste',
@@ -59,17 +97,97 @@ const initialRequirements: DocumentRequirement[] = [
     maxSize: 5,
     allowedTypes: ['pdf', 'jpg', 'jpeg', 'png'],
     required: false,
+    uploadAllowed: true,
+    acceptedSources: ['upload'],
   },
 ];
+
+function buildRequirementsFromService(service: TenantService | null): DocumentRequirement[] {
+  const manifestDocuments = service?.manifest?.requiredDocuments;
+  if (Array.isArray(manifestDocuments) && manifestDocuments.length > 0) {
+    return manifestDocuments.map((document) => ({
+      id: document.id,
+      name: document.name,
+      description: Array.isArray(document.digilockerTypes) && document.digilockerTypes.length > 0
+        ? `Accepted via DigiLocker: ${document.digilockerTypes.join(', ')}`
+        : 'Manual upload required for this document.',
+      maxSize: 5,
+      allowedTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+      required: Boolean(document.required),
+      uploadAllowed: Array.isArray(document.acceptedSources) ? document.acceptedSources.includes('upload') : true,
+      acceptedSources: document.acceptedSources,
+      digilockerTypes: document.digilockerTypes,
+    }));
+  }
+
+  const requiredDocuments = service?.requiredDocuments;
+  if (Array.isArray(requiredDocuments) && requiredDocuments.length > 0) {
+    return requiredDocuments.map((document, index) => {
+      if (typeof document === 'string') {
+        return {
+          id: `document-${index + 1}`,
+          name: document,
+          description: 'Upload the required supporting document.',
+          maxSize: 5,
+          allowedTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+          required: true,
+          uploadAllowed: true,
+          acceptedSources: ['upload'],
+        };
+      }
+
+      return {
+        id: document.type || `document-${index + 1}`,
+        name: document.name,
+        description: document.source ? `Reusable from ${document.source} or upload manually.` : 'Upload the required supporting document.',
+        maxSize: 5,
+        allowedTypes: ['pdf', 'jpg', 'jpeg', 'png'],
+        required: document.required !== false,
+        uploadAllowed: true,
+        acceptedSources: document.source ? [document.source.toLowerCase()] : ['upload'],
+      };
+    });
+  }
+
+  return initialRequirements;
+}
+
+function hydrateRequirements(
+  requirements: DocumentRequirement[],
+  uploadedDocuments: ApplicationDocumentRecord[]
+): DocumentRequirement[] {
+  const documentByType = new Map(uploadedDocuments.map((document) => [document.documentType, document]));
+
+  return requirements.map((requirement) => {
+    const uploaded = documentByType.get(requirement.id);
+    if (!uploaded) {
+      return requirement;
+    }
+
+    return {
+      ...requirement,
+      file: {
+        id: uploaded.documentId,
+        name: uploaded.fileName,
+        size: uploaded.size,
+        type: uploaded.mimeType,
+        url: uploaded.url,
+        status: 'success',
+      },
+    };
+  });
+}
 
 export default function DocumentUpload() {
   const { digiLockerDocuments } = useApp();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const applicationId = searchParams.get('applicationId');
+  const serviceIdFromQuery = searchParams.get('serviceId');
   const [application, setApplication] = useState<Application | null>(null);
+  const [service, setService] = useState<TenantService | null>(null);
   const [documents, setDocuments] = useState<DocumentRequirement[]>(initialRequirements);
-  const [isLoadingApplication, setIsLoadingApplication] = useState(Boolean(applicationId));
+  const [isLoadingApplication, setIsLoadingApplication] = useState(Boolean(applicationId || serviceIdFromQuery));
   const [submitting, setSubmitting] = useState<string | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -77,17 +195,37 @@ export default function DocumentUpload() {
     let isMounted = true;
 
     async function loadApplication() {
-      if (!applicationId) {
+      if (!applicationId && !serviceIdFromQuery) {
         setIsLoadingApplication(false);
         return;
       }
 
       try {
-        const response = await consumerService.getApplicationById(applicationId);
+        const applicationResponse = applicationId
+          ? await consumerService.getApplicationById(applicationId)
+          : null;
+        const effectiveServiceId = applicationResponse?.serviceId || serviceIdFromQuery;
+        const serviceResponse = effectiveServiceId
+          ? await consumerService.getServiceById(effectiveServiceId)
+          : null;
+
         if (!isMounted) {
           return;
         }
-        setApplication(response);
+
+        if (applicationResponse) {
+          setApplication(applicationResponse);
+        }
+
+        if (serviceResponse) {
+          const requirements = buildRequirementsFromService(serviceResponse);
+          const applicationDocuments = applicationId
+            ? await consumerService.getApplicationDocuments(applicationId)
+            : [];
+
+          setService(serviceResponse);
+          setDocuments(hydrateRequirements(requirements, applicationDocuments as ApplicationDocumentRecord[]));
+        }
       } catch (error: any) {
         if (!isMounted) {
           return;
@@ -105,14 +243,14 @@ export default function DocumentUpload() {
     return () => {
       isMounted = false;
     };
-  }, [applicationId]);
+  }, [applicationId, serviceIdFromQuery]);
 
   const uploadedCount = documents.filter((document) => document.file?.status === 'success').length;
   const totalRequired = documents.filter((document) => document.required).length;
   const progress = totalRequired === 0 ? 0 : (uploadedCount / totalRequired) * 100;
 
-  const pageTitle = application?.formData?.serviceName
-    ? `Upload Documents for ${application.formData.serviceName}`
+  const pageTitle = application?.formData?.serviceName || service?.name
+    ? `Upload Documents for ${application?.formData?.serviceName || service?.name}`
     : 'Upload Documents';
 
   const pageDescription = applicationId
@@ -120,11 +258,16 @@ export default function DocumentUpload() {
     : 'Upload required documents for your service application.';
 
   const autoFetchedDocuments = useMemo(
-    () => (digiLockerDocuments.length > 0 ? digiLockerDocuments : [
-      { name: 'Aadhaar Card', issuer: 'UIDAI' },
-      { name: 'Income Certificate', issuer: 'Revenue Department' },
-    ]),
+    () => digiLockerDocuments,
     [digiLockerDocuments]
+  );
+
+  const requirementStates = useMemo(
+    () => documents.map((document) => ({
+      ...document,
+      reusableSatisfied: hasReusableSourceMatch(document, autoFetchedDocuments),
+    })),
+    [documents, autoFetchedDocuments]
   );
 
   async function handleFileSelect(docId: string, event: ChangeEvent<HTMLInputElement>) {
@@ -166,7 +309,7 @@ export default function DocumentUpload() {
     );
 
     try {
-      const response = await consumerService.uploadDocument(applicationId, file, docId);
+      const response = await consumerService.uploadApplicationDocument(applicationId, docId, file);
       setDocuments((prev) =>
         prev.map((doc) =>
           doc.id === docId
@@ -220,8 +363,8 @@ export default function DocumentUpload() {
   }
 
   function handleSubmit() {
-    const missingRequired = documents.filter(
-      (doc) => doc.required && doc.file?.status !== 'success'
+    const missingRequired = requirementStates.filter(
+      (doc) => doc.required && doc.file?.status !== 'success' && !doc.reusableSatisfied
     );
 
     if (missingRequired.length > 0) {
@@ -255,7 +398,7 @@ export default function DocumentUpload() {
           </div>
         )}
 
-        {!applicationId && (
+        {!applicationId && !serviceIdFromQuery && (
           <div className="mb-6 rounded-lg border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning">
             Open this page from an application status flow to upload against a real application.
           </div>
@@ -304,7 +447,7 @@ export default function DocumentUpload() {
         <div className="space-y-6">
           <h2 className="text-xl font-bold">Upload Remaining Documents</h2>
 
-          {documents.map((doc) => (
+          {requirementStates.map((doc) => (
             <div
               key={doc.id}
               className={`rounded-xl border bg-card p-6 ${
@@ -336,6 +479,18 @@ export default function DocumentUpload() {
                       {doc.required && <span className="ml-1 text-destructive">*</span>}
                     </h3>
                     <p className="mb-3 text-sm text-muted-foreground">{doc.description}</p>
+
+                    {doc.reusableSatisfied && !doc.file && (
+                      <div className="mb-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs text-success">
+                        This requirement is already satisfied by a reusable verified source.
+                      </div>
+                    )}
+
+                    {doc.uploadAllowed === false && !doc.file && !doc.reusableSatisfied && (
+                      <div className="mb-3 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs text-success">
+                        This requirement must be resolved from a reusable source such as DigiLocker or an integrated system before you continue.
+                      </div>
+                    )}
 
                     {doc.file ? (
                       <div className={`flex items-center gap-3 rounded-lg border p-3 ${
@@ -381,6 +536,16 @@ export default function DocumentUpload() {
                             <X className="h-5 w-5" />
                           </button>
                         )}
+                      </div>
+                    ) : doc.uploadAllowed === false ? (
+                      <div className={`rounded-lg border border-dashed px-4 py-4 text-center text-sm ${
+                        doc.reusableSatisfied
+                          ? 'border-success/30 bg-success/5 text-success'
+                          : 'border-warning/30 bg-warning/5 text-warning'
+                      }`}>
+                        {doc.reusableSatisfied
+                          ? 'Resolved from a reusable source. No manual upload needed.'
+                          : 'Waiting for reusable source resolution. Manual upload is not available for this requirement.'}
                       </div>
                     ) : (
                       <div

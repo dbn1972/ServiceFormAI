@@ -13,9 +13,20 @@ import { UploadModule } from './upload/upload.module';
 import { ConsentModule } from './consent/consent.module';
 import { IntegrationModule } from './integration/integration.module';
 import { AuditModule } from './audit/audit.module';
+import { CustomComponentModule } from './custom-component/custom-component.module';
+import { PaymentModule } from './payment/payment.module';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isSynchronizeRequested = process.env.DB_SYNCHRONIZE === 'true';
+const isFixedTestOtpEnabled = process.env.OTP_FIXED_TEST_ENABLED === 'true';
+
+if (
+  isFixedTestOtpEnabled &&
+  (!/^\+91[6-9]\d{9}$/.test(process.env.OTP_FIXED_TEST_MOBILE || '') ||
+    !/^\d{6}$/.test(process.env.OTP_FIXED_TEST_CODE || ''))
+) {
+  throw new Error('Fixed test OTP requires one valid Indian test mobile and a six-digit code.');
+}
 
 if (isProduction && isSynchronizeRequested) {
   throw new Error(
@@ -64,6 +75,8 @@ if (isProduction && !process.env.DB_PASSWORD) {
     ConsentModule,
     IntegrationModule,
     AuditModule,
+    CustomComponentModule,
+    PaymentModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

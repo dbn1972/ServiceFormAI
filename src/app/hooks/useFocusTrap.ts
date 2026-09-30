@@ -35,9 +35,12 @@ export function useFocusTrap<T extends HTMLElement>(
         '[tabindex]:not([tabindex="-1"])',
       ].join(',');
 
-      return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
-        (el) => el.offsetParent !== null // visible elements only
-      );
+      return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter((element) => {
+        const style = window.getComputedStyle(element);
+        return !element.closest('[hidden], [aria-hidden="true"]')
+          && style.display !== 'none'
+          && style.visibility !== 'hidden';
+      });
     };
 
     // Set initial focus

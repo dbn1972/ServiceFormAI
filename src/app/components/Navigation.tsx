@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Home, FileText, Bell, User, Settings as SettingsIcon, LogOut, Search } from 'lucide-react';
+import { Home, FileText, Bell, User, Settings as SettingsIcon, LogOut, Search, ClipboardCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ThemeToggle from './ThemeToggle';
 import LanguageSelector from './LanguageSelector';
@@ -98,6 +98,9 @@ export default function Navigation() {
     { path: '/services', icon: Search, label: 'Services' },
     { path: '/applications', icon: FileText, label: 'Applications' },
     { path: '/notifications', icon: Bell, label: 'Notifications' },
+    ...(user.role === 'admin' || user.role === 'officer' || user.role === 'reviewer'
+      ? [{ path: '/producer/redress', icon: ClipboardCheck, label: 'Redress' }]
+      : []),
   ];
 
   return (

@@ -85,8 +85,32 @@ export default function StatusFlow() {
     }
 
     const currentStage = application.currentStage || 'Workflow Processing';
+    const statusHistory = application.statusHistory || [];
+    const deficiency = application.deficiencies?.[0];
     const submittedAt = application.submittedAt;
     const updatedAt = application.updatedAt || application.submittedAt;
+
+    if (statusHistory.length > 0) {
+      const steps = statusHistory.map((entry, index) => ({
+        title: entry.stage || entry.status,
+        desc: entry.notes || (index === 0 ? 'Application received by the backend.' : 'Status updated by the reviewing office.'),
+        time: entry.changedAt,
+        state: index === statusHistory.length - 1
+          ? (application.status === 'PENDING_DOCUMENTS' ? 'warning' : application.status === 'REJECTED' ? 'error' : 'active')
+          : 'done',
+      }));
+
+      if (deficiency) {
+        steps.push({
+          title: deficiency.title,
+          desc: deficiency.description,
+          time: deficiency.createdAt || updatedAt,
+          state: deficiency.status === 'resolved' ? 'done' : 'warning',
+        });
+      }
+
+      return steps;
+    }
 
     const steps = [
       {
@@ -128,6 +152,15 @@ export default function StatusFlow() {
             : 'pending',
       },
     ];
+
+    if (deficiency) {
+      steps.splice(2, 0, {
+        title: deficiency.title,
+        desc: deficiency.description,
+        time: deficiency.createdAt || updatedAt,
+        state: deficiency.status === 'resolved' ? 'done' : 'warning',
+      });
+    }
 
     return steps;
   }, [application]);
@@ -237,8 +270,33 @@ export default function StatusFlow() {
                       <FileText className="h-4 w-4" />
                       Go to Document Upload
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/applications/${application.id}/history`)}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-warning/30 bg-card py-2.5 text-sm font-medium text-warning hover:bg-warning/5"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Respond to deficiency
+                    </button>
                   </div>
                 )}
+
+                {application.deficiencies?.length ? (
+                  <div className="mt-6 rounded-lg border border-warning/20 bg-warning/5 p-4">
+                    <p className="mb-3 text-sm font-medium text-warning">Latest deficiency</p>
+                    <div className="space-y-2">
+                      {application.deficiencies.map((item) => (
+                        <div key={item.id} className="rounded-lg border border-border bg-card p-3">
+                          <p className="font-medium">{item.title}</p>
+                          <p className="text-sm text-muted-foreground">{item.description}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {item.status} {item.dueAt ? `• Due ${formatDateTime(item.dueAt)}` : ''}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-8 rounded-lg border border-info/20 bg-info/10 p-4">
                   <div className="flex items-start gap-3">
@@ -259,6 +317,13 @@ export default function StatusFlow() {
                     className="flex-1 rounded-lg bg-muted py-3 text-sm font-medium text-foreground hover:bg-muted/80"
                   >
                     Back to History
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/applications/${application.id}/history`)}
+                    className="flex-1 rounded-lg border border-border py-3 text-sm font-medium hover:bg-accent"
+                  >
+                    View Case History
                   </button>
                   <button
                     type="button"

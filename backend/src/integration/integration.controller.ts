@@ -8,14 +8,14 @@ import {
 } from '@nestjs/common';
 import { IntegrationService } from './integration.service';
 import { UpsertIntegrationDto } from './dto/upsert-integration.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 @Controller('producer/integrations')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(TenantStaffAuthGuard, RolesGuard)
 @Roles('admin')
 export class IntegrationController {
   constructor(private readonly integrationService: IntegrationService) {}

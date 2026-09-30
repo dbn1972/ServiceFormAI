@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import type { SSOProvider } from '../services/sso';
 import { authService, apiService } from '../services/api/index';
+import { clearPendingOnboardingIdentity } from '../utils/onboarding';
 
 // Types
 export interface User {
@@ -8,7 +9,7 @@ export interface User {
   name: string;
   email: string;
   mobile: string;
-  role: 'citizen' | 'officer' | 'admin';
+  role: 'citizen' | 'officer' | 'admin' | 'reviewer' | 'approver';
   avatar?: string;
   aadhaar?: string;
 }
@@ -37,8 +38,10 @@ export interface Notification {
 interface AppContextType {
   // User state
   user: User | null;
-  login: (email: string, password: string, method: 'email' | 'mobile') => Promise<boolean>;
-  loginWithSSO: (provider: SSOProvider, profile: any) => Promise<boolean>;
+  login: (email: string, password: string, method: 'email' | 'mobile') => Promise<User | null>;
+  loginWithOtp: (challengeId: string, mobile: string, code: string) => Promise<User | null>;
+  loginWithKeycloak: (accessToken: string) => Promise<User | null>;
+  loginWithSSO: (provider: SSOProvider, profile: any) => Promise<User | null>;
   logout: () => void;
   updateUser: (userData: Partial<User>) => void;
   
@@ -80,10 +83,15 @@ const normalizeUser = (storedUser: any): User | null => {
     name,
     email: storedUser.email || '',
     mobile: storedUser.mobile || storedUser.phone || '',
-    role:
-      storedUser.role === 'officer' || storedUser.role === 'admin'
-        ? storedUser.role
-        : 'citizen',
+    role: !storedUser.tenantId
+      ? 'citizen'
+      : storedUser.role === 'admin' || storedUser.role === 'platform_admin'
+        ? 'admin'
+        : storedUser.role === 'reviewer'
+          ? 'reviewer'
+          : storedUser.role === 'approver'
+            ? 'approver'
+            : 'officer',
     avatar: storedUser.avatar,
     aadhaar: storedUser.aadhaar,
   };
@@ -135,7 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [digiLockerDocuments]);
 
   // User functions
-  const login = async (email: string, password: string, method: 'email' | 'mobile'): Promise<boolean> => {
+  const login = async (email: string, password: string, method: 'email' | 'mobile'): Promise<User | null> => {
     try {
       const response = await authService.loginConsumer({
         identifier: email,
@@ -146,7 +154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const normalizedUser = normalizeUser(response.user);
 
       if (!normalizedUser) {
-        return false;
+        return null;
       }
 
       setUser(normalizedUser);
@@ -159,14 +167,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         read: false
       });
 
-      return true;
+      return normalizedUser;
     } catch (error) {
       console.error('Login error:', error);
-      return false;
+      return null;
     }
   };
 
-  const loginWithSSO = async (provider: SSOProvider, profile: any): Promise<boolean> => {
+  const loginWithOtp = async (challengeId: string, mobile: string, code: string): Promise<User | null> => {
+    const response = await authService.verifyCitizenOtp({ challengeId, mobile, code });
+    const normalizedUser = normalizeUser(response.user);
+    if (!normalizedUser) {
+      return null;
+    }
+    setUser(normalizedUser);
+    return normalizedUser;
+  };
+
+  const loginWithKeycloak = async (accessToken: string): Promise<User | null> => {
+    const response = await authService.exchangeKeycloakToken(accessToken);
+    const normalizedUser = normalizeUser(response.user);
+    if (!normalizedUser) {
+      return null;
+    }
+    setUser(normalizedUser);
+    return normalizedUser;
+  };
+
+  const loginWithSSO = async (provider: SSOProvider, profile: any): Promise<User | null> => {
     // Simulate API call to backend to create/update user with SSO profile
     await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -183,7 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: profile.id,
       name: profile.name,
       email: profile.email,
-      mobile: '+91 00000 00000', // Will be updated during onboarding
+      mobile: profile.mobile || '',
       role: 'citizen',
       avatar: profile.picture,
       aadhaar: profile.aadhaar, // Only for DigiLocker
@@ -200,13 +228,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       read: false
     });
 
-    return true;
+    return ssoUser;
   };
 
   const logout = () => {
     setUser(null);
     void authService.logout().catch(() => undefined);
     apiService.clearTokens();
+    clearPendingOnboardingIdentity();
     localStorage.removeItem('lastLoginIdentifier');
     localStorage.removeItem('lastLoginName');
     localStorage.removeItem('applications');
@@ -287,6 +316,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: AppContextType = {
     user,
     login,
+    loginWithOtp,
+    loginWithKeycloak,
     loginWithSSO,
     logout,
     updateUser,

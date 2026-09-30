@@ -13,7 +13,10 @@ const AadhaarOTPLogin = lazy(() => import('../pages/AadhaarOTPLogin'));
 
 // Public pages
 const AboutUs = lazy(() => import('../pages/AboutUs'));
+const AccessibilityGuide = lazy(() => import('../pages/AccessibilityGuide'));
 const Features = lazy(() => import('../pages/Features'));
+const DeveloperPortal = lazy(() => import('../pages/DeveloperPortal'));
+const Install = lazy(() => import('../pages/Install'));
 const ContactUs = lazy(() => import('../pages/ContactUs'));
 const PrivacyPolicy = lazy(() => import('../pages/PrivacyPolicy'));
 const TermsOfService = lazy(() => import('../pages/TermsOfService'));
@@ -24,12 +27,15 @@ const Pricing = lazy(() => import('../pages/Pricing'));
 
 // Protected - Citizen pages
 const CitizenDashboard = lazy(() => import('../pages/CitizenDashboard'));
+const CitizenOnboarding = lazy(() => import('../pages/CitizenOnboarding'));
 const ServiceCatalog = lazy(() => import('../pages/ServiceCatalog'));
 const ServiceDetail = lazy(() => import('../pages/ServiceDetail'));
 const ServiceComparison = lazy(() => import('../pages/ServiceComparison'));
+const CitizenServiceFeed = lazy(() => import('../pages/CitizenServiceFeed'));
 const SearchResults = lazy(() => import('../pages/SearchResults'));
 const ApplicationJourney = lazy(() => import('../pages/ApplicationJourney'));
 const ApplicationHistory = lazy(() => import('../pages/ApplicationHistory'));
+const ApplicationCaseHistory = lazy(() => import('../pages/ApplicationCaseHistory'));
 const ApplicationConfirmation = lazy(() => import('../pages/ApplicationConfirmation'));
 const ApplicationDraftEdit = lazy(() => import('../pages/ApplicationDraftEdit'));
 const StatusFlow = lazy(() => import('../pages/StatusFlow'));
@@ -40,6 +46,7 @@ const CertificateDownload = lazy(() => import('../pages/CertificateDownload'));
 const DigiLockerWallet = lazy(() => import('../pages/DigiLockerWallet'));
 const GrievanceJourney = lazy(() => import('../pages/GrievanceJourney'));
 const GrievanceDetail = lazy(() => import('../pages/GrievanceDetail'));
+const AppealJourney = lazy(() => import('../pages/AppealJourney'));
 const AppointmentBooking = lazy(() => import('../pages/AppointmentBooking'));
 const FeedbackRating = lazy(() => import('../pages/FeedbackRating'));
 const CitizenProfile = lazy(() => import('../pages/CitizenProfile'));
@@ -50,6 +57,7 @@ const CitizenReports = lazy(() => import('../pages/CitizenReports'));
 const LiveChatSupport = lazy(() => import('../pages/LiveChatSupport'));
 const TutorialGuide = lazy(() => import('../pages/TutorialGuide'));
 const DPDPPrivacyCenter = lazy(() => import('../pages/DPDPPrivacyCenter'));
+const ConsentManagement = lazy(() => import('../pages/ConsentManagement'));
 
 // Protected - Officer pages
 const OfficerDashboard = lazy(() => import('../pages/OfficerDashboard'));
@@ -75,12 +83,16 @@ const EligibilityEngine = lazy(() => import('../pages/EligibilityEngine'));
 const APIIntegrationWizard = lazy(() => import('../pages/APIIntegrationWizard'));
 const PluginMarketplace = lazy(() => import('../pages/PluginMarketplace'));
 const ManifestStudio = lazy(() => import('../pages/ManifestStudio'));
+const RedressQueue = lazy(() => import('../pages/RedressQueue'));
+const TemplateBrowser = lazy(() => import('../pages/TemplateBrowser'));
 const AuditTrail = lazy(() => import('../pages/AuditTrail'));
 const SLAWarRoom = lazy(() => import('../pages/SLAWarRoom'));
+const QueueOperations = lazy(() => import('../pages/QueueOperations'));
 const OperationalIntelligence = lazy(() => import('../pages/OperationalIntelligence'));
 const AdvancedAnalytics = lazy(() => import('../pages/AdvancedAnalytics'));
 const EnterpriseReadinessDashboard = lazy(() => import('../pages/EnterpriseReadinessDashboard'));
 const QADashboard = lazy(() => import('../pages/QADashboard'));
+const MultiLanguage = lazy(() => import('../pages/MultiLanguage'));
 
 // Design System pages (internal - not routed)
 const DesignSystem = lazy(() => import('../pages/DesignSystem'));
@@ -135,6 +147,14 @@ export const routes: RouteObject[] = [
     element: <Features />,
   },
   {
+    path: '/developers',
+    element: <DeveloperPortal />,
+  },
+  {
+    path: '/install',
+    element: <Install />,
+  },
+  {
     path: '/contact',
     element: <ContactUs />,
   },
@@ -159,6 +179,10 @@ export const routes: RouteObject[] = [
     element: <HelpCenter />,
   },
   {
+    path: '/accessibility-guide',
+    element: <AccessibilityGuide />,
+  },
+  {
     path: '/pricing',
     element: <Pricing />,
   },
@@ -173,6 +197,14 @@ export const routes: RouteObject[] = [
     ),
   },
   {
+    path: '/onboarding/citizen',
+    element: (
+      <ProtectedRoute>
+        <CitizenOnboarding />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: '/services',
     element: (
       <ProtectedRoute>
@@ -181,10 +213,26 @@ export const routes: RouteObject[] = [
     ),
   },
   {
+    path: '/discover/feed',
+    element: (
+      <ProtectedRoute>
+        <CitizenServiceFeed />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: '/services/:id',
     element: (
       <ProtectedRoute>
         <ServiceDetail />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/eligibility/:serviceId',
+    element: (
+      <ProtectedRoute>
+        <EligibilityEngine />
       </ProtectedRoute>
     ),
   },
@@ -225,6 +273,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <StatusFlow />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/applications/:id/history',
+    element: (
+      <ProtectedRoute>
+        <ApplicationCaseHistory />
       </ProtectedRoute>
     ),
   },
@@ -297,6 +353,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <GrievanceDetail />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/appeals',
+    element: (
+      <ProtectedRoute>
+        <AppealJourney />
       </ProtectedRoute>
     ),
   },
@@ -377,6 +441,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute>
         <DPDPPrivacyCenter />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/consent',
+    element: (
+      <ProtectedRoute>
+        <ConsentManagement />
       </ProtectedRoute>
     ),
   },
@@ -481,10 +553,26 @@ export const routes: RouteObject[] = [
     ),
   },
   {
+    path: '/admin/templates',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <TemplateBrowser />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: '/admin/whitelabel',
     element: (
       <ProtectedRoute requireAdmin>
         <WhiteLabelSettings />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/localization',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <MultiLanguage />
       </ProtectedRoute>
     ),
   },
@@ -561,6 +649,14 @@ export const routes: RouteObject[] = [
     ),
   },
   {
+    path: '/producer/redress',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'officer', 'reviewer']}>
+        <RedressQueue />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: '/admin/audit',
     element: (
       <ProtectedRoute requireAdmin>
@@ -573,6 +669,14 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute requireAdmin>
         <SLAWarRoom />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/admin/queue',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <QueueOperations />
       </ProtectedRoute>
     ),
   },
@@ -597,6 +701,80 @@ export const routes: RouteObject[] = [
     element: (
       <ProtectedRoute requireAdmin>
         <QADashboard />
+      </ProtectedRoute>
+    ),
+  },
+
+  // Tenant aliases for existing admin workspace pages
+  {
+    path: '/tenant/onboarding',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <TenantOnboarding />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/dashboard',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <TenantDashboard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/templates',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <TemplateBrowser />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/service/create',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <ServiceCreationWizard />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/service/workflow',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <ServiceWorkflowConfig />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/settings',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <WhiteLabelSettings />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/white-label',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <WhiteLabelSettings />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/analytics',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <AdminAnalytics />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/tenant/api-integration/new',
+    element: (
+      <ProtectedRoute requireAdmin>
+        <APIIntegrationWizard />
       </ProtectedRoute>
     ),
   },

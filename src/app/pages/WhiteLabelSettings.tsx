@@ -41,6 +41,19 @@ interface WhiteLabelConfig {
   officeAddress: string;
 }
 
+interface GovernanceScope {
+  jurisdiction_model: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+  ministry_code: string;
+  department_code: string;
+  state_lgd_code: string;
+  district_lgd_code: string;
+  block_lgd_code: string;
+  municipality_lgd_code: string;
+  panchayat_lgd_code: string;
+  ward_code: string;
+  village_code: string;
+}
+
 export default function WhiteLabelSettings() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +80,18 @@ export default function WhiteLabelSettings() {
     helpline: '1800-XXX-XXXX',
     officeAddress: 'Mantralaya, Mumbai - 400032, Maharashtra, India',
   });
+  const [governanceScope, setGovernanceScope] = useState<GovernanceScope>({
+    jurisdiction_model: 'state',
+    ministry_code: '',
+    department_code: '',
+    state_lgd_code: '',
+    district_lgd_code: '',
+    block_lgd_code: '',
+    municipality_lgd_code: '',
+    panchayat_lgd_code: '',
+    ward_code: '',
+    village_code: '',
+  });
 
   // Load existing settings from API on mount
   useEffect(() => {
@@ -83,6 +108,10 @@ export default function WhiteLabelSettings() {
           background: prev.colors.background,
         },
         customDomain: data.customDomain ?? prev.customDomain,
+      }));
+      setGovernanceScope(prev => ({
+        ...prev,
+        ...(data.governanceScope ?? {}),
       }));
     }).catch(() => undefined);
   }, []);
@@ -208,6 +237,7 @@ export default function WhiteLabelSettings() {
         primaryColor: config.colors.primary,
         secondaryColor: config.colors.secondary,
         customDomain: config.customDomain,
+        governanceScope,
       });
 
       toast.success('Settings saved successfully', {
@@ -348,6 +378,109 @@ export default function WhiteLabelSettings() {
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium mb-2">Primary Color</label>
+
+              {/* Governance Scope */}
+              <div className="bg-card border border-border rounded-xl p-6">
+                <h2 className="text-lg font-semibold mb-6">Governance Scope</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Jurisdiction Model</label>
+                    <select
+                      value={governanceScope.jurisdiction_model}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, jurisdiction_model: e.target.value as GovernanceScope['jurisdiction_model'] }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="state">State</option>
+                      <option value="central">Central</option>
+                      <option value="district">District</option>
+                      <option value="urban_local_body">Urban Local Body</option>
+                      <option value="rural_local_body">Rural Local Body</option>
+                      <option value="mixed">Mixed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Ministry Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.ministry_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, ministry_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Department Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.department_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, department_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">State LGD Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.state_lgd_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, state_lgd_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">District LGD Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.district_lgd_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, district_lgd_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Block LGD Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.block_lgd_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, block_lgd_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Municipality LGD Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.municipality_lgd_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, municipality_lgd_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Panchayat LGD Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.panchayat_lgd_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, panchayat_lgd_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Ward Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.ward_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, ward_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Village Code</label>
+                    <input
+                      type="text"
+                      value={governanceScope.village_code}
+                      onChange={(e) => setGovernanceScope(prev => ({ ...prev, village_code: e.target.value }))}
+                      className="w-full px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+              </div>
                   <div className="flex items-center gap-3">
                     <input
                       type="color"

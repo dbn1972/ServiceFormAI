@@ -384,13 +384,13 @@ describe('Consent integration — admin stats', () => {
     expect(res.body.data.by_purpose.service_delivery.granted).toBeGreaterThanOrEqual(1);
   });
 
-  it('returns 403 when consumer tries to access stats', async () => {
+  it('returns 401 when citizen credentials try to access stats', async () => {
     const token = signTestJwt({ role: 'consumer', tenantId: TEST_TENANT_ID });
 
     await request(app.getHttpServer())
       .get('/producer/consent/stats')
       .set('Authorization', `Bearer ${token}`)
-      .expect(HttpStatus.FORBIDDEN);
+      .expect(HttpStatus.UNAUTHORIZED);
   });
 });
 
@@ -551,22 +551,22 @@ describe('Consent integration — RBAC producer endpoint protection', () => {
   });
   afterEach(async () => { await app.close(); });
 
-  it('consumer role cannot access GET /producer/consent', async () => {
+  it('citizen credentials cannot access GET /producer/consent', async () => {
     const token = signTestJwt({ role: 'consumer', tenantId: TEST_TENANT_ID });
 
     await request(app.getHttpServer())
       .get('/producer/consent')
       .set('Authorization', `Bearer ${token}`)
-      .expect(HttpStatus.FORBIDDEN);
+      .expect(HttpStatus.UNAUTHORIZED);
   });
 
-  it('consumer role cannot access admin revoke endpoint', async () => {
+  it('citizen credentials cannot access admin revoke endpoint', async () => {
     const token = signTestJwt({ role: 'consumer', tenantId: TEST_TENANT_ID });
 
     await request(app.getHttpServer())
       .patch('/producer/consent/some-id/revoke')
       .set('Authorization', `Bearer ${token}`)
       .send({ reason: 'exploit' })
-      .expect(HttpStatus.FORBIDDEN);
+      .expect(HttpStatus.UNAUTHORIZED);
   });
 });

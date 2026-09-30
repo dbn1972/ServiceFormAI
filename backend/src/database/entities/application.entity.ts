@@ -21,6 +21,9 @@ export class Application {
   @Column({ type: 'uuid' })
   service_id: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  service_release_id: string | null;
+
   @Column({ type: 'uuid' })
   consumer_id: string;
 
@@ -47,6 +50,12 @@ export class Application {
 
   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   idempotency_key: string | null;
+
+  @Column({ type: 'integer', nullable: true })
+  schema_version: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  offline_submitted_at: Date | null;
 
   @CreateDateColumn()
   created_at: Date;

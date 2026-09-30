@@ -3,6 +3,7 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  IsIn,
   MaxLength,
   ValidateNested,
   IsBoolean,
@@ -51,6 +52,40 @@ class IntegrationPolicyDto {
   @IsOptional() @IsBoolean() sandbox_mode?: boolean;
 }
 
+class GovernanceScopeDto {
+  @IsOptional() @IsIn(['ministry', 'department', 'state', 'district', 'district_office', 'municipality', 'panchayat']) owner_level?: 'ministry' | 'department' | 'state' | 'district' | 'district_office' | 'municipality' | 'panchayat';
+  @IsOptional() @IsIn(['central', 'state', 'district', 'department']) monitoring_mode?: 'central' | 'state' | 'district' | 'department';
+  @IsOptional() @IsIn(['central', 'state', 'district', 'urban_local_body', 'rural_local_body', 'mixed']) jurisdiction_model?: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+  @IsOptional() @IsString() @MaxLength(120) ministry_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) ministry_name?: string;
+  @IsOptional() @IsString() @MaxLength(120) department_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) department_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) state_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) state_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) district_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) district_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) subdistrict_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) subdistrict_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) block_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) block_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) tehsil_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) tehsil_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) taluka_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) taluka_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) municipality_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) municipality_name?: string;
+  @IsOptional() @IsIn(['municipal_corporation', 'municipality', 'nagar_panchayat', 'town_panchayat', 'other']) ulb_type?: 'municipal_corporation' | 'municipality' | 'nagar_panchayat' | 'town_panchayat' | 'other';
+  @IsOptional() @IsString() @MaxLength(50) panchayat_lgd_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) panchayat_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) gram_panchayat_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) gram_panchayat_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) ward_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) ward_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) village_code?: string;
+  @IsOptional() @IsString() @MaxLength(255) village_name?: string;
+  @IsOptional() @IsString() @MaxLength(50) lgd_standard?: string;
+}
+
 export class CreateTenantDto {
   @IsString() @MaxLength(255) name: string;
   @IsEnum(['government', 'enterprise', 'ngo', 'other']) type: string;
@@ -61,6 +96,7 @@ export class CreateTenantDto {
   @IsOptional() @ValidateNested() @Type(() => ConsentPolicyDto) consent_policy?: ConsentPolicyDto;
   @IsOptional() @ValidateNested() @Type(() => NotificationPolicyDto) notification_policy?: NotificationPolicyDto;
   @IsOptional() @ValidateNested() @Type(() => IntegrationPolicyDto) integration_policy?: IntegrationPolicyDto;
+  @IsOptional() @ValidateNested() @Type(() => GovernanceScopeDto) governance_scope?: GovernanceScopeDto;
 }
 
 export class UpdateTenantDto {
@@ -73,6 +109,7 @@ export class UpdateTenantDto {
   @IsOptional() @ValidateNested() @Type(() => ConsentPolicyDto) consent_policy?: ConsentPolicyDto;
   @IsOptional() @ValidateNested() @Type(() => NotificationPolicyDto) notification_policy?: NotificationPolicyDto;
   @IsOptional() @ValidateNested() @Type(() => IntegrationPolicyDto) integration_policy?: IntegrationPolicyDto;
+  @IsOptional() @ValidateNested() @Type(() => GovernanceScopeDto) governance_scope?: GovernanceScopeDto;
 }
 
 export class SuspendTenantDto {

@@ -8,6 +8,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -18,7 +19,7 @@ export default defineConfig({
     ['list'],
   ],
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -31,7 +32,7 @@ export default defineConfig({
     {
       name: 'Desktop Chrome',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: ['**/responsive.spec.ts', '**/dark-mode.spec.ts'],
+      testIgnore: ['**/responsive.spec.ts', '**/dark-mode.spec.ts', '**/income-certificate.spec.ts'],
     },
     {
       name: 'Desktop Firefox',
@@ -113,12 +114,26 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       testMatch: ['**/accessibility.spec.ts'],
     },
+
+    {
+      name: 'Income Certificate',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: ['**/income-certificate.spec.ts'],
+    },
   ],
 
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  webServer: [
+    {
+      command: 'VITE_API_URL=http://localhost:3101/api/v1 npm run dev -- --host localhost --port 5173',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+    {
+      command: 'NODE_ENV=test PORT=3101 API_PORT=3101 DB_HOST=${DB_HOST:-localhost} DB_PORT=${DB_PORT:-5432} DB_USERNAME=${DB_USERNAME:-serviceformai} DB_PASSWORD=${DB_PASSWORD:-changeme_in_production} DB_NAME=${DB_NAME:-serviceformai} OTP_TEST_CODE=123456 OTP_PEPPER=serviceformai-e2e-otp-pepper-2026 pnpm --dir backend run start:dev',
+      url: 'http://localhost:3101/api/v1/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+    },
+  ],
 });

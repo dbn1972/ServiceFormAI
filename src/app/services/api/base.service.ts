@@ -101,10 +101,11 @@ export class ApiService {
    */
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    includeAuthentication = true,
   ): Promise<T> {
-    const token = this.getToken();
-    const tenantId = this.getTenantId();
+    const token = includeAuthentication ? this.getToken() : null;
+    const tenantId = includeAuthentication ? this.getTenantId() : null;
 
     const headers: HeadersInit = {
       ...getAuthHeaders(token || undefined),
@@ -126,6 +127,10 @@ export class ApiService {
 
       // Handle different response status codes
       if (response.status === 401) {
+        if (!includeAuthentication) {
+          const body = await response.json().catch(() => null);
+          throw new Error((body as any)?.message || 'Authentication failed');
+        }
         // Attempt a token refresh, then retry once
         const refreshed = await this.tryRefreshToken();
         if (refreshed) {
@@ -234,6 +239,18 @@ export class ApiService {
       body: data ? JSON.stringify(data) : undefined,
       headers: extraHeaders,
     });
+  }
+
+  public async postPublic<T>(
+    endpoint: string,
+    data?: any,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+      headers: extraHeaders,
+    }, false);
   }
 
   /**

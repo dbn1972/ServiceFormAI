@@ -1,0 +1,155 @@
+/**
+ * Print Stylesheet
+ *
+ * Pure CSS @media print rules for form rendering.
+ * No JavaScript required.
+ *
+ * - Hides interactive elements (buttons, toggles, file uploads, tooltips)
+ * - Expands all collapsible sections
+ * - Forces single-column layout
+ * - Inserts page breaks before section headers
+ * - Displays field values as plain text
+ * - Shows tenant logo and form title at top of first page
+ */
+
+@media print {
+  /* ── Hide interactive elements ─────────────────────────────────────── */
+
+  /* Submit buttons */
+  button[type="submit"],
+  .submit-button {
+    display: none !important;
+  }
+
+  /* Collapse toggle buttons (Radix Collapsible triggers) */
+  [data-radix-collapsible-trigger],
+  .section-group button[aria-expanded] {
+    pointer-events: none;
+  }
+
+  /* Hide the chevron icon in section toggles */
+  .section-group button[aria-expanded] svg {
+    display: none !important;
+  }
+
+  /* File upload drop zones */
+  .border-dashed {
+    border-style: solid !important;
+    border-width: 1px !important;
+  }
+
+  input[type="file"] {
+    display: none !important;
+  }
+
+  /* Tooltip triggers */
+  [data-radix-tooltip-trigger],
+  [role="tooltip"] {
+    display: none !important;
+  }
+
+  /* ── Expand all collapsible sections ───────────────────────────────── */
+
+  /* Radix Collapsible content — force visible when closed */
+  [data-state="closed"] {
+    display: block !important;
+  }
+
+  /* Override grid display for closed collapsible content */
+  [data-state="closed"][style*="display: none"] {
+    display: grid !important;
+  }
+
+  /* ── Force single-column layout ────────────────────────────────────── */
+
+  .layout-engine [class*="grid-cols-"],
+  .layout-engine .grid,
+  .section-group > div[style*="grid-template-columns"],
+  [data-testid="default-section"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Field wrappers span full width */
+  .field-wrapper {
+    grid-column: span 1 !important;
+  }
+
+  /* ── Page breaks before sections ───────────────────────────────────── */
+
+  .section-group {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* Don't break before the first section */
+  .section-group:first-child {
+    page-break-before: auto;
+    break-before: auto;
+  }
+
+  /* Avoid breaking inside a field */
+  .field-wrapper {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  /* ── Display field values as plain text ─────────────────────────────── */
+
+  input,
+  select,
+  textarea {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    outline: none !important;
+    resize: none !important;
+  }
+
+  /* ── Tenant logo and form title ────────────────────────────────────── */
+
+  .print-header {
+    display: block !important;
+  }
+
+  #form-title {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  /* ── General print optimisations ───────────────────────────────────── */
+
+  /* Remove background colours for ink saving */
+  .theme-provider-container {
+    background: white !important;
+    color: black !important;
+  }
+
+  /* Ensure the form takes full width */
+  .layout-engine {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Hide navigation, sidebar, and other non-form UI */
+  nav,
+  aside,
+  footer,
+  .sidebar,
+  .navigation {
+    display: none !important;
+  }
+
+  /* Hide error messages in print */
+  [role="alert"] {
+    display: none !important;
+  }
+
+  /* Hide loading spinners */
+  .animate-spin,
+  .animate-pulse {
+    display: none !important;
+  }
+}

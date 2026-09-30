@@ -1,6 +1,7 @@
 {
   "name": "serviceformai-backend",
   "version": "1.0.0",
+  "type": "commonjs",
   "description": "Multi-tenant B2B2C Dynamic Form Engine Platform - NestJS Backend",
   "author": "",
   "private": true,
@@ -13,12 +14,13 @@
     "start:debug": "ts-node --inspect -r tsconfig-paths/register src/main.ts",
     "start:prod": "node dist/main",
     "start:worker": "node dist/workers/main",
+    "e2e:setup": "ts-node -r tsconfig-paths/register src/test/e2e-setup.ts",
     "test": "jest",
     "test:integration": "jest --testPathPattern=integration.spec.ts --runInBand",
     "test:unit": "jest --testPathPattern=\\.spec\\.ts$ --testPathIgnorePatterns=integration.spec.ts",
     "test:coverage": "jest --coverage",
-    "migration:run": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:run -d src/database/data-source.ts",
-    "migration:revert": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:revert -d src/database/data-source.ts",
+    "migration:run": "pnpm run build && typeorm migration:run -d dist/database/data-source.js",
+    "migration:revert": "pnpm run build && typeorm migration:revert -d dist/database/data-source.js",
     "migration:generate": "ts-node -r tsconfig-paths/register node_modules/typeorm/cli.js migration:generate -d src/database/data-source.ts"
   },
   "keywords": [],
@@ -38,6 +40,8 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "helmet": "^8.1.0",
+    "jose": "^5.10.0",
+    "multer": "^2.0.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
@@ -52,8 +56,10 @@
     "@nestjs/cli": "^11.0.21",
     "@nestjs/schematics": "^11.1.0",
     "@nestjs/testing": "^11.1.19",
+    "@types/express": "^5.0.3",
     "@types/bcrypt": "^6.0.0",
     "@types/jest": "^29.5.14",
+    "@types/multer": "^2.0.0",
     "@types/node": "^20.19.39",
     "@types/passport-jwt": "^4.0.1",
     "@types/passport-local": "^1.0.38",
@@ -65,6 +71,9 @@
     "ts-loader": "^9.5.7",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["bcrypt"]
   },
   "jest": {
     "moduleFileExtensions": [
@@ -96,6 +105,9 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^@serviceformai/validation-engine$": "<rootDir>/../packages/validation-engine/src/index.ts"
+    },
     "setupFiles": [
       "<rootDir>/test/jest-setup.ts"
     ],

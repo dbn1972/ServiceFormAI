@@ -21,4 +21,28 @@ export class RegisterTenantDto {
   @IsString()
   @IsOptional()
   lastName?: string;
+
+  @IsString()
+  @IsOptional()
+  orgName?: string;
+
+  @IsString()
+  @IsOptional()
+  organizationType?: string;
+
+  @IsString()
+  @IsOptional()
+  state?: string;
+
+  @IsString()
+  @IsOptional()
+  district?: string;
+
+  @IsString()
+  @IsOptional()
+  municipalityName?: string;
+
+  @IsString()
+  @IsOptional()
+  officeName?: string;
 }

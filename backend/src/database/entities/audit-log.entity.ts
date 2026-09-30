@@ -37,7 +37,23 @@ export type AuditEventType =
   | 'tenant.offboarded'
   | 'service.created'
   | 'service.updated'
-  | 'service.deleted';
+  | 'service.deleted'
+  | 'validation.success'
+  | 'validation.failure'
+  | 'component.created'
+  | 'component.updated'
+  | 'component.deleted'
+  | 'action.execution.success'
+  | 'action.execution.error'
+  | 'action.execution.timeout'
+  | 'action.execution.rate_limited'
+  | 'action.security.violation'
+  | 'payment.order.created'
+  | 'payment.verified'
+  | 'payment.verification.failed'
+  | 'payment.refund.initiated'
+  | 'payment.refund.completed'
+  | 'payment.webhook.received';
 
 @Entity('audit_logs')
 @Index('idx_audit_logs_actor', ['actor_id', 'created_at'])

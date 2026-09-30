@@ -7,6 +7,7 @@
 #   ./validate.sh               # Auto-detect mode (pre if not installed, post if running)
 #   ./validate.sh --pre         # Pre-install validation only
 #   ./validate.sh --post        # Post-install validation (services must be up)
+#   ./validate.sh --config      # Deterministic, non-destructive Compose/readiness check
 #   ./validate.sh --readiness   # Full enterprise readiness score
 #   ./validate.sh --all         # Pre + Post + Readiness
 #   ./validate.sh --output json # Output as JSON (for CI/CD)
@@ -20,8 +21,10 @@ BLUE='\033[0;34m' BOLD='\033[1m'       NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="$PROJECT_ROOT/.env"
-COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
+DEPLOYMENT_DIR="$PROJECT_ROOT/deployment"
+ENV_FILE="$DEPLOYMENT_DIR/.env"
+[[ -f "$ENV_FILE" ]] || ENV_FILE="$PROJECT_ROOT/.env"
+COMPOSE_FILE="$DEPLOYMENT_DIR/docker-compose.yml"
 
 MODE="auto"
 OUTPUT_FORMAT="text"
@@ -31,9 +34,10 @@ declare -a REPORT_LINES=()
 declare -a JSON_CHECKS=()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-pass()    { echo -e "  ${GREEN}✓${NC} $1"; REPORT_LINES+=("PASS: $1");  JSON_CHECKS+=("{\"check\":\"$1\",\"status\":\"pass\"}"); }
-warn()    { echo -e "  ${YELLOW}⚠${NC} $1"; REPORT_LINES+=("WARN: $1"); JSON_CHECKS+=("{\"check\":\"$1\",\"status\":\"warn\"}"); ((WARNINGS++)) || true; }
-fail()    { echo -e "  ${RED}✗${NC} $1"; REPORT_LINES+=("FAIL: $1");    JSON_CHECKS+=("{\"check\":\"$1\",\"status\":\"fail\"}"); ((BLOCKING_FAILURES++)) || true; }
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[[:space:]]\+/ /g'; }
+pass()    { local message; message=$(json_escape "$1"); echo -e "  ${GREEN}✓${NC} $1"; REPORT_LINES+=("PASS: $1");  JSON_CHECKS+=("{\"check\":\"$message\",\"status\":\"pass\"}"); }
+warn()    { local message; message=$(json_escape "$1"); echo -e "  ${YELLOW}⚠${NC} $1"; REPORT_LINES+=("WARN: $1"); JSON_CHECKS+=("{\"check\":\"$message\",\"status\":\"warn\"}"); ((WARNINGS++)) || true; }
+fail()    { local message; message=$(json_escape "$1"); echo -e "  ${RED}✗${NC} $1"; REPORT_LINES+=("FAIL: $1");    JSON_CHECKS+=("{\"check\":\"$message\",\"status\":\"fail\"}"); ((BLOCKING_FAILURES++)) || true; }
 section() { echo -e "\n${BOLD}${BLUE}── $1 ──${NC}"; }
 cmd_ok()  { command -v "$1" >/dev/null 2>&1; }
 env_val() { [[ -f "$ENV_FILE" ]] && grep -E "^$1=" "$ENV_FILE" | cut -d= -f2- | tr -d "\"'" || echo ""; }
@@ -137,7 +141,7 @@ run_pre_validation() {
       fi
     done
   else
-    warn ".env not found — copy .env.example to .env and fill in values"
+    fail ".env not found — copy .env.example to .env and fill in values"
   fi
 
   section "Network Connectivity"
@@ -158,6 +162,46 @@ run_pre_validation() {
   fi
 }
 
+# ── STATIC DEPLOYMENT VALIDATION ─────────────────────────────────────────────
+run_config_validation() {
+  echo ""
+  echo -e "${BOLD}STATIC DEPLOYMENT VALIDATION — ServiceFormAI OS${NC}"
+  echo "=================================================="
+  section "Compose Configuration"
+  if [[ ! -f "$COMPOSE_FILE" ]]; then
+    fail "Compose file not found: $COMPOSE_FILE"
+    return 0
+  fi
+  if ! cmd_ok docker; then
+    fail "Docker CLI not found — cannot validate Compose configuration"
+    return 0
+  fi
+  local compose_args=(-f "$COMPOSE_FILE")
+  [[ -f "$ENV_FILE" ]] && compose_args+=(--env-file "$ENV_FILE")
+  if docker compose "${compose_args[@]}" config --quiet >/dev/null 2>&1; then
+    pass "Docker Compose configuration is valid"
+  else
+    fail "Docker Compose configuration is invalid"
+    return 0
+  fi
+  local services
+  services=$(docker compose "${compose_args[@]}" config --services 2>/dev/null || echo "")
+  local required_service
+  for required_service in postgres redis minio backend frontend; do
+    if grep -qx "$required_service" <<<"$services"; then
+      pass "Compose service declared: $required_service"
+    else
+      fail "Required Compose service missing: $required_service"
+    fi
+  done
+  local healthcheck_count
+  healthcheck_count=$(grep -c "^    healthcheck:" "$COMPOSE_FILE" || true)
+  if [[ "$healthcheck_count" -ge 5 ]]; then
+    pass "Readiness healthchecks declared for core services ($healthcheck_count found)"
+  else
+    fail "Expected at least 5 core service healthchecks, found $healthcheck_count"
+  fi
+}
 # ── POST-INSTALL VALIDATION (§12) ────────────────────────────────────────────
 run_post_validation() {
   echo ""
@@ -394,11 +438,19 @@ main() {
     case "$1" in
       --pre)       MODE="pre" ;;
       --post)      MODE="post" ;;
+      --config)    MODE="config" ;;
       --readiness) MODE="readiness" ;;
       --all)       MODE="all" ;;
-      --output)    OUTPUT_FORMAT="$2"; shift ;;
+      --output)
+        if [[ $# -lt 2 || -z "$2" ]]; then
+          echo "--output requires a non-empty value" >&2
+          exit 1
+        fi
+        OUTPUT_FORMAT="$2"
+        shift
+        ;;
       --help|-h)
-        echo "Usage: $0 [--pre|--post|--readiness|--all] [--output json]"
+        echo "Usage: $0 [--pre|--post|--config|--readiness|--all] [--output json]"
         exit 0
         ;;
       *) echo "Unknown option: $1"; exit 1 ;;
@@ -406,26 +458,55 @@ main() {
     shift
   done
 
-  case "$MODE" in
-    pre)       run_pre_validation ;;
-    post)      run_post_validation ;;
-    readiness) run_post_validation; run_readiness_score ;;
-    all)       run_pre_validation; run_post_validation; run_readiness_score ;;
-    auto)
-      # Auto-detect: if compose services exist run post, else pre
-      if docker compose -f "$COMPOSE_FILE" ps 2>/dev/null | grep -qiE "running|up"; then
-        run_post_validation
-        run_readiness_score
-      else
-        run_pre_validation
-      fi
-      ;;
-  esac
+  if [[ "$OUTPUT_FORMAT" != "text" && "$OUTPUT_FORMAT" != "json" ]]; then
+    echo "Unsupported output format: $OUTPUT_FORMAT (use text or json)" >&2
+    exit 1
+  fi
 
-  echo ""
+  if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+    case "$MODE" in
+      pre)       run_pre_validation >/dev/null ;;
+      post)      run_post_validation >/dev/null ;;
+      config)    run_config_validation >/dev/null ;;
+      readiness) run_post_validation >/dev/null; run_readiness_score >/dev/null ;;
+      all)       run_pre_validation >/dev/null; run_post_validation >/dev/null; run_readiness_score >/dev/null ;;
+      auto)
+        if docker compose -f "$COMPOSE_FILE" ps 2>/dev/null | grep -qiE "running|up"; then
+          run_post_validation >/dev/null
+          run_readiness_score >/dev/null
+        else
+          run_pre_validation >/dev/null
+        fi
+        ;;
+    esac
+  else
+    case "$MODE" in
+      pre)       run_pre_validation ;;
+      post)      run_post_validation ;;
+      config)    run_config_validation ;;
+      readiness) run_post_validation; run_readiness_score ;;
+      all)       run_pre_validation; run_post_validation; run_readiness_score ;;
+      auto)
+        # Auto-detect: if compose services exist run post, else pre
+        if docker compose -f "$COMPOSE_FILE" ps 2>/dev/null | grep -qiE "running|up"; then
+          run_post_validation
+          run_readiness_score
+        else
+          run_pre_validation
+        fi
+        ;;
+    esac
+  fi
+
   if [[ "$OUTPUT_FORMAT" == "json" ]]; then
     output_json
+    if [[ $BLOCKING_FAILURES -gt 0 ]]; then
+      exit 1
+    fi
+    exit 0
   fi
+
+  echo ""
 
   if [[ $BLOCKING_FAILURES -gt 0 ]]; then
     echo -e "${RED}Validation FAILED — $BLOCKING_FAILURES blocking issue(s) found.${NC}"

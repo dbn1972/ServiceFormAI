@@ -1,10 +1,43 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
-import { render } from '../../../test/test-utils';
+import { render as testingLibraryRender, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { ThemeProvider } from '../../context/ThemeContext';
+import { LanguageProvider } from '../../context/LanguageContext';
+import { AccessibilityProvider } from '../../context/AccessibilityContext';
 import Navigation from '../Navigation';
 import { AppContext } from '../../context/AppContext';
 
 const mockLogout = vi.fn();
+
+function NavigationProviders({
+  children,
+  initialEntries = ['/'],
+}: {
+  children: React.ReactNode;
+  initialEntries?: string[];
+}) {
+  return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <AccessibilityProvider>
+          <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+        </AccessibilityProvider>
+      </LanguageProvider>
+    </ThemeProvider>
+  );
+}
+
+const render = (ui: React.ReactElement) =>
+  testingLibraryRender(ui, { wrapper: NavigationProviders });
+
+const renderAtDashboard = (ui: React.ReactElement) =>
+  testingLibraryRender(ui, {
+    wrapper: ({ children }) => (
+      <NavigationProviders initialEntries={['/dashboard']}>
+        {children}
+      </NavigationProviders>
+    ),
+  });
 
 const MockAppProviderWithUser = ({ children }: { children: React.ReactNode }) => {
   const mockUser = {
@@ -111,15 +144,14 @@ describe('Navigation', () => {
     });
 
     it('should have aria-current on active page', () => {
-      render(
+      renderAtDashboard(
         <MockAppProviderWithUser>
           <Navigation />
         </MockAppProviderWithUser>
       );
 
-      const dashboardLink = screen.getByRole('link', { name: /dashboard/i });
-      // Note: aria-current would be set based on current location
-      expect(dashboardLink).toBeInTheDocument();
+      const dashboardLink = screen.getByRole('link', { name: 'Dashboard' });
+      expect(dashboardLink).toHaveAttribute('aria-current', 'page');
     });
 
     it('should render user profile link', () => {

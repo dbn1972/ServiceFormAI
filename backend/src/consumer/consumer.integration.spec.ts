@@ -29,14 +29,22 @@ import request from 'supertest';
 
 import { ConsumerController } from './consumer.controller';
 import { ConsumerService } from './consumer.service';
+import { FormValidationGuard } from '../validation/validation.guard';
 import { JwtStrategy } from '../auth/strategies/jwt.strategy';
 import { CacheService } from '../scalability/cache.service';
 import { QueueService } from '../scalability/queue.service';
 import { ConsentService } from '../consent/consent.service';
 import { TenantService } from '../tenant/tenant.service';
+import { PaymentService } from '../payment/payment.service';
 import { TenantService as TenantServiceEntity } from '../database/entities/tenant-service.entity';
 import { Application } from '../database/entities/application.entity';
+import { ApplicationEvent } from '../database/entities/application-event.entity';
+import { ApplicationDeficiency } from '../database/entities/application-deficiency.entity';
+import { GrievanceCase } from '../database/entities/grievance-case.entity';
+import { AppealCase } from '../database/entities/appeal-case.entity';
+import { CitizenFeedback } from '../database/entities/citizen-feedback.entity';
 import { ConsumerUser } from '../database/entities/consumer-user.entity';
+import { ApplicationOutput } from '../database/entities/application-output.entity';
 
 import {
   makeRepo,
@@ -61,11 +69,21 @@ import {
 async function createConsumerApp(queueEnabled = false) {
   const serviceRepo = makeRepo();
   const applicationRepo = makeRepo();
+  const applicationEventRepo = makeRepo();
+  const applicationDeficiencyRepo = makeRepo();
+  const grievanceRepo = makeRepo();
+  const appealRepo = makeRepo();
+  const feedbackRepo = makeRepo();
+  const outputRepo = makeRepo();
   const consumerUserRepo = makeRepo();
   const mockQueue = queueEnabled ? makeMockQueueEnabled() : makeMockQueue();
   const mockCache = makeMockCache();
   const mockConsent = makeMockConsent();
   const mockTenantDomain = makeMockTenantDomainService();
+  const mockPaymentService = {
+    assertPaymentCompleted: jest.fn().mockResolvedValue(undefined),
+    getPaymentByApplication: jest.fn().mockResolvedValue(null),
+  };
 
   const module: TestingModule = await Test.createTestingModule({
     imports: [
@@ -76,22 +94,30 @@ async function createConsumerApp(queueEnabled = false) {
     controllers: [ConsumerController],
     providers: [
       ConsumerService,
+      FormValidationGuard,
       JwtStrategy,
       { provide: APP_GUARD, useClass: ThrottlerGuard },
       { provide: getRepositoryToken(TenantServiceEntity), useValue: serviceRepo },
       { provide: getRepositoryToken(Application), useValue: applicationRepo },
+      { provide: getRepositoryToken(ApplicationEvent), useValue: applicationEventRepo },
+      { provide: getRepositoryToken(ApplicationDeficiency), useValue: applicationDeficiencyRepo },
+      { provide: getRepositoryToken(GrievanceCase), useValue: grievanceRepo },
+      { provide: getRepositoryToken(AppealCase), useValue: appealRepo },
+      { provide: getRepositoryToken(CitizenFeedback), useValue: feedbackRepo },
+      { provide: getRepositoryToken(ApplicationOutput), useValue: outputRepo },
       { provide: getRepositoryToken(ConsumerUser), useValue: consumerUserRepo },
       { provide: CacheService, useValue: mockCache },
       { provide: QueueService, useValue: mockQueue },
       { provide: ConsentService, useValue: mockConsent },
       { provide: TenantService, useValue: mockTenantDomain },
+      { provide: PaymentService, useValue: mockPaymentService },
     ],
   }).compile();
 
   const app = module.createNestApplication();
   await app.init();
 
-  return { app, serviceRepo, applicationRepo, consumerUserRepo, mockQueue, mockCache, mockConsent };
+  return { app, serviceRepo, applicationRepo, applicationEventRepo, applicationDeficiencyRepo, grievanceRepo, appealRepo, feedbackRepo, outputRepo, consumerUserRepo, mockQueue, mockCache, mockConsent };
 }
 
 // ─── A. Auth protection ───────────────────────────────────────────────────────
@@ -195,6 +221,67 @@ describe('Consumer integration — consumer isolation', () => {
         });
       }
     }
+  });
+});
+
+// ─── C. Deficiency response ────────────────────────────────────────────────
+
+describe('Consumer integration — deficiency response', () => {
+  let app: INestApplication;
+  let applicationRepo: ReturnType<typeof makeRepo>;
+  let applicationDeficiencyRepo: ReturnType<typeof makeRepo>;
+  let applicationEventRepo: ReturnType<typeof makeRepo>;
+
+  beforeEach(async () => {
+    const setup = await createConsumerApp();
+    app = setup.app;
+    applicationRepo = setup.applicationRepo;
+    applicationDeficiencyRepo = setup.applicationDeficiencyRepo;
+    applicationEventRepo = setup.applicationEventRepo;
+  });
+
+  afterEach(async () => { await app.close(); });
+
+  it('POST /consumer/applications/:id/deficiency-response resolves the open deficiency', async () => {
+    const openApplication = testApplication({
+      consumer_id: TEST_CONSUMER_ID,
+      status: 'PENDING_DOCUMENTS',
+      current_stage: 'Deficiency Raised',
+    });
+
+    applicationRepo.findOne.mockResolvedValue(openApplication);
+    applicationRepo.save.mockImplementation(async (entity: any) => entity);
+    applicationDeficiencyRepo.find.mockResolvedValue([
+      {
+        id: 'def-1',
+        application_id: TEST_APPLICATION_ID,
+        tenant_id: TEST_TENANT_ID,
+        raised_by_id: null,
+        raised_by_role: 'officer',
+        title: 'Document deficiency',
+        description: 'Upload corrected income certificate',
+        status: 'open',
+        due_at: null,
+        resolved_at: null,
+        resolution_notes: null,
+        metadata: null,
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    ] as any);
+    applicationDeficiencyRepo.save.mockImplementation(async (entity: any) => entity);
+    applicationEventRepo.save.mockImplementation(async (entity: any) => entity);
+
+    const token = consumerToken(TEST_CONSUMER_ID);
+    const res = await request(app.getHttpServer())
+      .post(`/consumer/applications/${TEST_APPLICATION_ID}/deficiency-response`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ notes: 'Uploaded corrected income certificate' });
+
+    expect(res.status).toBe(HttpStatus.CREATED);
+    expect(res.body.data.status).toBe('UNDER_REVIEW');
+    expect(applicationEventRepo.save).toHaveBeenCalled();
+    expect(applicationDeficiencyRepo.save).toHaveBeenCalled();
   });
 });
 
@@ -357,5 +444,207 @@ describe('Consumer integration — service not found', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ serviceId: 'non-existent-service-id', formData: {} })
       .expect(HttpStatus.NOT_FOUND);
+  });
+});
+
+describe('Consumer integration — durable release-bound drafts', () => {
+  let app: INestApplication;
+  let serviceRepo: ReturnType<typeof makeRepo>;
+  let applicationRepo: ReturnType<typeof makeRepo>;
+
+  beforeEach(async () => {
+    const setup = await createConsumerApp();
+    app = setup.app;
+    serviceRepo = setup.serviceRepo;
+    applicationRepo = setup.applicationRepo;
+  });
+
+  afterEach(async () => { await app.close(); });
+
+  it('POST /consumer/services/:serviceId/draft creates a draft pinned to the current release', async () => {
+    serviceRepo.findOne.mockResolvedValue(testTenantService({ schema_version: 2 }));
+    applicationRepo.findOne.mockResolvedValue(null);
+    applicationRepo.save.mockImplementation(async (draft: any) => ({
+      ...draft,
+      id: 'draft-application-1',
+      updated_at: new Date(),
+    }));
+
+    const response = await request(app.getHttpServer())
+      .post(`/consumer/services/${TEST_SERVICE_ID}/draft`)
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .send({ formData: { full_name: 'Asha Rao' }, schemaVersion: 2 })
+      .expect(HttpStatus.CREATED);
+
+    expect(applicationRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'DRAFT',
+      schema_version: 2,
+      service_release_id: expect.any(String),
+      consumer_id: TEST_CONSUMER_ID,
+    }));
+    expect(response.body.data.application_id).toBe('draft-application-1');
+  });
+
+  it('GET /consumer/services/:serviceId/draft restores the saved form payload', async () => {
+    const draft = {
+      id: 'draft-application-1',
+      service_id: TEST_SERVICE_ID,
+      service_release_id: '00000000-0000-0000-0000-000000000002',
+      consumer_id: TEST_CONSUMER_ID,
+      status: 'DRAFT',
+      schema_version: 2,
+      form_data: { full_name: 'Asha Rao', selectedDocuments: ['Identity proof'] },
+      tracking_number: 'APP-DRAFT-1',
+      updated_at: new Date(),
+    };
+    serviceRepo.findOne.mockResolvedValue(testTenantService({ schema_version: 2 }));
+    applicationRepo.findOne.mockResolvedValue(draft);
+
+    const response = await request(app.getHttpServer())
+      .get(`/consumer/services/${TEST_SERVICE_ID}/draft`)
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .expect(HttpStatus.OK);
+
+    expect(response.body.data.form_data).toEqual(draft.form_data);
+    expect(response.body.data.service_release_id).toBe(draft.service_release_id);
+  });
+
+  it('GET /consumer/services/:serviceId/draft returns an empty result for a first-time applicant', async () => {
+    serviceRepo.findOne.mockResolvedValue(testTenantService());
+    applicationRepo.findOne.mockResolvedValue(null);
+
+    const response = await request(app.getHttpServer())
+      .get(`/consumer/services/${TEST_SERVICE_ID}/draft`)
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .expect(HttpStatus.OK);
+
+    expect(response.body.data).toBeNull();
+  });
+
+  it('POST /consumer/applications converts the existing draft into the submitted case', async () => {
+    const releaseId = '00000000-0000-0000-0000-000000000002';
+    const draft = {
+      id: 'draft-application-1',
+      tenant_id: TEST_TENANT_ID,
+      service_id: TEST_SERVICE_ID,
+      service_release_id: releaseId,
+      consumer_id: TEST_CONSUMER_ID,
+      consumer_source: 'mobile',
+      form_data: { full_name: 'Asha Rao' },
+      status: 'DRAFT',
+      current_stage: 'Draft',
+      tracking_number: 'APP-DRAFT-1',
+      idempotency_key: null,
+      schema_version: 1,
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    serviceRepo.findOne.mockResolvedValue(testTenantService({ current_release_id: releaseId }));
+    applicationRepo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(draft);
+    applicationRepo.save.mockImplementation(async (application: any) => application);
+
+    const response = await request(app.getHttpServer())
+      .post('/consumer/applications')
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .set('x-idempotency-key', 'draft-submit-once')
+      .set('x-schema-version', '1')
+      .send({
+        serviceId: TEST_SERVICE_ID,
+        applicationId: draft.id,
+        schemaVersion: 1,
+        formData: { full_name: 'Asha Rao' },
+      })
+      .expect(HttpStatus.CREATED);
+
+    expect(applicationRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: draft.id,
+      status: 'submitted',
+      service_release_id: releaseId,
+      tracking_number: draft.tracking_number,
+      idempotency_key: 'draft-submit-once',
+    }));
+    expect(response.body.data.application_id).toBe(draft.id);
+  });
+});
+
+describe('Consumer integration — redress records', () => {
+  let app: INestApplication;
+  let applicationRepo: ReturnType<typeof makeRepo>;
+  let applicationEventRepo: ReturnType<typeof makeRepo>;
+  let grievanceRepo: ReturnType<typeof makeRepo>;
+  let appealRepo: ReturnType<typeof makeRepo>;
+  let feedbackRepo: ReturnType<typeof makeRepo>;
+
+  beforeEach(async () => {
+    const setup = await createConsumerApp();
+    app = setup.app;
+    applicationRepo = setup.applicationRepo;
+    applicationEventRepo = setup.applicationEventRepo;
+    grievanceRepo = setup.grievanceRepo;
+    appealRepo = setup.appealRepo;
+    feedbackRepo = setup.feedbackRepo;
+  });
+
+  afterEach(async () => { await app.close(); });
+
+  it('creates a linked grievance case instead of mutating application form data', async () => {
+    applicationRepo.findOne.mockResolvedValue(testApplication({ consumer_id: TEST_CONSUMER_ID, status: 'COMPLETED' }));
+
+    const response = await request(app.getHttpServer())
+      .post('/consumer/grievances')
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .send({
+        applicationId: TEST_APPLICATION_ID,
+        category: 'delay',
+        subject: 'Application is delayed',
+        description: 'The stated processing time has elapsed without an update.',
+      })
+      .expect(HttpStatus.CREATED);
+
+    expect(grievanceRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      application_id: TEST_APPLICATION_ID,
+      consumer_id: TEST_CONSUMER_ID,
+      status: 'submitted',
+    }));
+    expect(response.body.data.status).toBe('submitted');
+  });
+
+  it('accepts an appeal only against a recorded final decision within the appeal window', async () => {
+    applicationRepo.findOne.mockResolvedValue(testApplication({ consumer_id: TEST_CONSUMER_ID, status: 'REJECTED' }));
+    applicationEventRepo.find.mockResolvedValue([{
+      id: 'decision-event-1',
+      actor_id: 'decision-maker-1',
+      to_status: 'REJECTED',
+      created_at: new Date(),
+    }]);
+
+    await request(app.getHttpServer())
+      .post(`/consumer/applications/${TEST_APPLICATION_ID}/appeals`)
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .send({ grounds: 'incorrect_facts', statement: 'The submitted income evidence was not considered in the decision.' })
+      .expect(HttpStatus.CREATED);
+
+    expect(appealRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      original_decision_event_id: 'decision-event-1',
+      original_decision_actor_id: 'decision-maker-1',
+      status: 'submitted',
+    }));
+  });
+
+  it('stores feedback independently from the application form payload', async () => {
+    applicationRepo.findOne.mockResolvedValue(testApplication({ consumer_id: TEST_CONSUMER_ID, status: 'COMPLETED' }));
+
+    await request(app.getHttpServer())
+      .post('/consumer/feedback')
+      .set('Authorization', `Bearer ${consumerToken(TEST_CONSUMER_ID)}`)
+      .send({ applicationId: TEST_APPLICATION_ID, rating: 4, comment: 'The process was clear.' })
+      .expect(HttpStatus.CREATED);
+
+    expect(feedbackRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      application_id: TEST_APPLICATION_ID,
+      consumer_id: TEST_CONSUMER_ID,
+      rating: 4,
+      status: 'submitted',
+    }));
+    expect(applicationRepo.save).not.toHaveBeenCalled();
   });
 });

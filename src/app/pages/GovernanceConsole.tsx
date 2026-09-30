@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -203,6 +204,12 @@ export default function GovernanceConsole() {
             This admin surface is live, but today it controls an in-memory cache and queue scaffold. It is not yet a durable
             production control plane.
           </div>
+          <Link
+            to="/admin/queue"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+          >
+            Queue Operations
+          </Link>
           <button
             onClick={() => scalabilityService.downloadExport()}
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"

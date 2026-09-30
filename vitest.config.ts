@@ -11,8 +11,9 @@ export default defineConfig({
     css: true,
     // Exclude backend Jest specs — they must be run with `cd backend && pnpm test`
     exclude: [
-      'node_modules/**',
-      'dist/**',
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
       'backend/**',       // all backend Jest specs
       'e2e/**',           // Playwright specs — run with `npx playwright test`
       'src/qa/**',        // QA Playwright specs
@@ -41,6 +42,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@serviceformai/form-engine-react': path.resolve(__dirname, './packages/form-engine-react/src/index.ts'),
+      '@serviceformai/form-engine-core': path.resolve(__dirname, './packages/form-engine-core/src/index.ts'),
+      '@serviceformai/validation-engine': path.resolve(__dirname, './packages/validation-engine/src/index.ts'),
     },
   },
 });

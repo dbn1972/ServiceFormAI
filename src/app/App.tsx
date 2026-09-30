@@ -4,8 +4,11 @@ import { AppProvider } from './context/AppContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { AccessibilityProvider } from './context/AccessibilityContext';
+import { OfflinePWAProvider } from './context/OfflinePWAContext';
 import { routes } from './routes';
 import RootLayout from './layouts/RootLayout';
+import OfflineIndicator from './components/OfflineIndicator';
+import PWAInstallBanner from './components/PWAInstallBanner';
 
 // Loading fallback
 function PageLoader() {
@@ -25,21 +28,25 @@ export default function App() {
       <LanguageProvider>
         <AccessibilityProvider>
           <AppProvider>
-            <BrowserRouter>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route element={<RootLayout />}>
-                    {routes.map((route, index) => (
-                      <Route
-                        key={route.path || index}
-                        path={route.path}
-                        element={route.element}
-                      />
-                    ))}
-                  </Route>
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
+            <OfflinePWAProvider>
+              <BrowserRouter>
+                <OfflineIndicator />
+                <PWAInstallBanner />
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    <Route element={<RootLayout />}>
+                      {routes.map((route, index) => (
+                        <Route
+                          key={route.path || index}
+                          path={route.path}
+                          element={route.element}
+                        />
+                      ))}
+                    </Route>
+                  </Routes>
+                </Suspense>
+              </BrowserRouter>
+            </OfflinePWAProvider>
           </AppProvider>
         </AccessibilityProvider>
       </LanguageProvider>

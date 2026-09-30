@@ -13,9 +13,20 @@ import type {
   RefreshTokenDto,
   AuthTokens,
   LoginResponse,
+  IssueCitizenOtpResponse,
+  VerifyCitizenOtpDto,
+  TenantOnboardingRequest,
+  TenantOnboardingResponse,
 } from '../../shared/types';
 
 export class AuthService {
+  async submitTenantOnboarding(data: TenantOnboardingRequest): Promise<TenantOnboardingResponse> {
+    return apiService.postPublic<TenantOnboardingResponse>(
+      API_ENDPOINTS.tenant.onboarding,
+      data,
+    );
+  }
+
   /**
    * Register a new tenant (producer)
    */
@@ -77,6 +88,35 @@ export class AuthService {
     apiService.saveTokens(response.tokens.accessToken, response.tokens.refreshToken);
     apiService.saveUser(response.user);
 
+    return response;
+  }
+
+  async issueCitizenOtp(mobile: string): Promise<IssueCitizenOtpResponse> {
+    return apiService.postPublic<IssueCitizenOtpResponse>(
+      API_ENDPOINTS.auth.issueCitizenOtp,
+      { mobile },
+    );
+  }
+
+  async verifyCitizenOtp(data: VerifyCitizenOtpDto): Promise<LoginResponse> {
+    const response = await apiService.postPublic<LoginResponse>(
+      API_ENDPOINTS.auth.verifyCitizenOtp,
+      data,
+    );
+
+    apiService.saveTokens(response.tokens.accessToken, response.tokens.refreshToken);
+    apiService.saveUser(response.user);
+    return response;
+  }
+
+  async exchangeKeycloakToken(keycloakAccessToken: string): Promise<LoginResponse> {
+    const response = await apiService.postPublic<LoginResponse>(
+      API_ENDPOINTS.auth.staffSession,
+      {},
+      { Authorization: `Bearer ${keycloakAccessToken}` },
+    );
+    apiService.saveTokens(response.tokens.accessToken, response.tokens.refreshToken);
+    apiService.saveUser(response.user);
     return response;
   }
 

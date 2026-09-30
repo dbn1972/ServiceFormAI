@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsDateString, MaxLength } from 'class-validator';
 
 export class UpdateApplicationStatusDto {
   @IsString()
@@ -7,4 +7,13 @@ export class UpdateApplicationStatusDto {
   @IsString()
   @IsOptional()
   stage?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  notes?: string;
+
+  @IsDateString()
+  @IsOptional()
+  deficiencyDueAt?: string;
 }

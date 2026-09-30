@@ -1,14 +1,48 @@
-import { User, Bell, Shield, Globe, Palette, Smartphone, Download, HelpCircle, LogOut, ChevronRight, Moon, Sun, Check } from 'lucide-react';
+import { User, Bell, Shield, Globe, Palette, Smartphone, Download, HelpCircle, LogOut, ChevronRight, Moon, Sun, Check, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import { useState } from 'react';
+import toast from '../utils/toast';
 
 export default function Settings() {
   const navigate = useNavigate();
   const { logout, user } = useApp();
+  const [showClearOfflineDialog, setShowClearOfflineDialog] = useState(false);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleClearOfflineData = async () => {
+    try {
+      // Import lazily to avoid loading IndexedDB on every page
+      const { OfflineStore } = await import('../services/offlineStore');
+      const store = new OfflineStore();
+      await store.clearAll();
+
+      // Clear service worker caches
+      if ('caches' in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(
+          cacheKeys
+            .filter(
+              (key) =>
+                key.startsWith('app-shell-') ||
+                key.startsWith('api-schemas-') ||
+                key.startsWith('static-assets-'),
+            )
+            .map((key) => caches.delete(key)),
+        );
+      }
+
+      toast.success('All offline data cleared');
+    } catch {
+      toast.error('Failed to clear offline data');
+    } finally {
+      setShowClearOfflineDialog(false);
+    }
   };
 
   return (
@@ -346,6 +380,24 @@ export default function Settings() {
                   </p>
                 </div>
 
+                <div className="p-4 border border-warning/30 bg-warning/5 rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Trash2 className="w-4 h-4 text-warning" />
+                      <h4 className="font-semibold text-sm">Clear Offline Data</h4>
+                    </div>
+                    <button
+                      onClick={() => setShowClearOfflineDialog(true)}
+                      className="px-3 py-1 bg-warning/20 text-warning rounded text-xs font-medium hover:bg-warning/30"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Delete all saved drafts, pending submissions, and cached forms stored on this device.
+                  </p>
+                </div>
+
                 <div className="p-4 border border-destructive/30 bg-destructive/5 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-sm text-destructive">Delete Account</h4>
@@ -357,6 +409,40 @@ export default function Settings() {
                     Permanently delete your account and all associated data. This action cannot be undone.
                   </p>
                 </div>
+
+                {/* Clear Offline Data Confirmation Dialog */}
+                <AlertDialog.Root
+                  open={showClearOfflineDialog}
+                  onOpenChange={setShowClearOfflineDialog}
+                >
+                  <AlertDialog.Portal>
+                    <AlertDialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
+                    <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-card rounded-xl p-6 max-w-md w-full shadow-xl">
+                      <AlertDialog.Title className="text-lg font-semibold mb-2">
+                        Clear All Offline Data?
+                      </AlertDialog.Title>
+                      <AlertDialog.Description className="text-sm text-muted-foreground mb-6">
+                        This will permanently delete all saved drafts, pending submissions, and cached
+                        forms. Any unsynced submissions will be lost.
+                      </AlertDialog.Description>
+                      <div className="flex gap-3 justify-end">
+                        <AlertDialog.Cancel asChild>
+                          <button className="px-4 py-2 bg-muted text-foreground rounded-lg font-medium hover:bg-muted/80">
+                            Cancel
+                          </button>
+                        </AlertDialog.Cancel>
+                        <AlertDialog.Action asChild>
+                          <button
+                            className="px-4 py-2 bg-destructive text-destructive-foreground rounded-lg font-medium hover:bg-destructive/90"
+                            onClick={handleClearOfflineData}
+                          >
+                            Clear All Data
+                          </button>
+                        </AlertDialog.Action>
+                      </div>
+                    </AlertDialog.Content>
+                  </AlertDialog.Portal>
+                </AlertDialog.Root>
               </div>
             </div>
 

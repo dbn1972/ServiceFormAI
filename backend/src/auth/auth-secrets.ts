@@ -1,9 +1,11 @@
 const DEFAULT_JWT_SECRET = 'your-super-secret-jwt-key';
 const DEFAULT_REFRESH_SECRET = 'your-super-secret-refresh-key';
+const DEFAULT_RESET_SECRET = 'your-super-secret-reset-key';
 
 function resolveSecret(envName: string, fallback: string) {
   const value = process.env[envName];
-  const isProductionLike = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+  // Any NODE_ENV that is NOT 'development' and NOT 'test' requires secure secrets
+  const isProductionLike = process.env.NODE_ENV !== 'development' && process.env.NODE_ENV !== 'test';
 
   if (value && value !== fallback) {
     return value;
@@ -22,6 +24,10 @@ export function getJwtSecret() {
 
 export function getJwtRefreshSecret() {
   return resolveSecret('JWT_REFRESH_SECRET', DEFAULT_REFRESH_SECRET);
+}
+
+export function getPasswordResetSecret() {
+  return resolveSecret('JWT_RESET_SECRET', DEFAULT_RESET_SECRET);
 }
 
 export function getJwtExpiry() {

@@ -12,6 +12,7 @@ export default function DepartmentServiceConfig() {
   // Services state
   const [services, setServices] = useState<TenantService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
+  const [pendingServiceIds, setPendingServiceIds] = useState<string[]>([]);
 
   // Officers state
   const [officers, setOfficers] = useState<TenantUser[]>([]);
@@ -22,6 +23,12 @@ export default function DepartmentServiceConfig() {
     try {
       const res = await producerService.getServices({ page: 1, limit: 100 });
       setServices(res.data ?? []);
+      try {
+        const approvals = await producerService.getPendingPublicationApprovals();
+        setPendingServiceIds(approvals.map((approval) => approval.service_id));
+      } catch {
+        setPendingServiceIds([]);
+      }
     } catch {
       toast.error('Failed to load services');
     } finally {
@@ -54,7 +61,9 @@ export default function DepartmentServiceConfig() {
   const handlePublish = async (id: string) => {
     try {
       await producerService.publishService(id);
-      toast.success('Service published');
+      toast.success('Publication requested', {
+        description: 'A different tenant administrator must approve the service before it becomes live.',
+      });
       loadServices();
     } catch {
       toast.error('Failed to publish service');
@@ -180,7 +189,7 @@ export default function DepartmentServiceConfig() {
                                 : 'bg-warning/10 text-warning'
                             }`}
                           >
-                            {service.isPublished ? '● Published' : '● Draft'}
+                            {service.isPublished ? '● Published' : pendingServiceIds.includes(service.id) ? '● Pending approval' : '● Draft'}
                           </span>
                         </div>
                         <p className="text-sm text-muted-foreground">{service.description}</p>
@@ -227,6 +236,15 @@ export default function DepartmentServiceConfig() {
                         >
                           <EyeOff className="w-4 h-4" />
                           Unpublish
+                        </button>
+                      ) : pendingServiceIds.includes(service.id) ? (
+                        <button
+                          type="button"
+                          disabled
+                          title="Awaiting a different tenant administrator's approval"
+                          className="px-4 py-2 border border-border rounded-lg text-sm font-medium text-muted-foreground cursor-not-allowed"
+                        >
+                          Pending approval
                         </button>
                       ) : (
                         <button

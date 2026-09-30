@@ -2,7 +2,7 @@
  * API Service Layer
  *
  * This module provides a clean abstraction for all API calls.
- * Currently uses mock data, but structured to easily swap in real backend.
+ * Uses the configured backend for all requests.
  *
  * Features:
  * - Automatic retry with exponential backoff
@@ -16,7 +16,7 @@ import { withRetry, withTimeout, CircuitBreaker, handleError, networkStatus } fr
 import toast from '../utils/toast';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api/v1';
-const USE_MOCK_DATA = !(import.meta as any).env?.VITE_API_URL; // Auto-detect
+const API_URL_CONFIGURED = Boolean((import.meta as any).env?.VITE_API_URL);
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds
 
 // Circuit breaker for API calls
@@ -64,10 +64,13 @@ async function apiFetch<T>(
   endpoint: string,
   options: RequestInit & { timeout?: number; skipRetry?: boolean } = {}
 ): Promise<ApiResponse<T>> {
-  if (USE_MOCK_DATA) {
-    // Mock delay to simulate network
-    await new Promise(resolve => setTimeout(resolve, 300));
-    return mockApiCall<T>(endpoint, options);
+  if (!API_URL_CONFIGURED) {
+    return {
+      data: null as any,
+      success: false,
+      error: 'API configuration is missing',
+      message: 'Set VITE_API_URL before using the legacy API client.',
+    };
   }
 
   // Check network status
@@ -148,37 +151,6 @@ async function apiFetch<T>(
   }
 
   return fetchFn();
-}
-
-// Mock API implementation (to be replaced with real backend)
-async function mockApiCall<T>(endpoint: string, options: RequestInit): Promise<ApiResponse<T>> {
-  console.log(`[MOCK API] ${options.method || 'GET'} ${endpoint}`, options.body);
-
-  // Simulate successful responses
-  const mockResponses: Record<string, any> = {
-    '/service-templates': {
-      data: [], // Would return ALL_SERVICE_TEMPLATES
-      success: true,
-    },
-    '/tenant/': {
-      data: { id: 'tenant_123', name: 'Test Tenant' },
-      success: true,
-    },
-  };
-
-  // Match endpoint pattern
-  for (const [pattern, response] of Object.entries(mockResponses)) {
-    if (endpoint.includes(pattern)) {
-      return response as ApiResponse<T>;
-    }
-  }
-
-  // Default successful response
-  return {
-    data: {} as T,
-    success: true,
-    message: 'Mock API call successful',
-  };
 }
 
 // ============================================================================
@@ -314,19 +286,11 @@ export const FileAPI = {
       };
     }
 
-    if (USE_MOCK_DATA) {
-      // Simulate upload progress
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        onProgress?.(i);
-      }
-
+    if (!API_URL_CONFIGURED) {
       return {
-        data: {
-          url: URL.createObjectURL(file),
-          id: `file_${Date.now()}`,
-        },
-        success: true,
+        data: null as any,
+        success: false,
+        error: 'API configuration is missing',
       };
     }
 
@@ -449,5 +413,14 @@ export const API = {
   File: FileAPI,
   Onboarding: OnboardingAPI,
 };
+
+export {
+  apiService,
+  authService,
+  consumerService,
+  producerService,
+  scalabilityService,
+  auditService,
+} from './api/index';
 
 export default API;

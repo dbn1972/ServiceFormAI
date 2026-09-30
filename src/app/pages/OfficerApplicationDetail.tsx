@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, AlertTriangle, Download, History, User, Calendar, ArrowLeft, Loader2 } from 'lucide-react';
 import { producerService } from '../services/api/producer.service';
+import { useApp } from '../context/AppContext';
 
 export default function OfficerApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useApp();
   const [application, setApplication] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -62,6 +64,9 @@ export default function OfficerApplicationDetail() {
   const formData = application.formData ?? application.form_data ?? {};
   const trackingNumber = application.trackingNumber ?? application.tracking_number ?? id;
   const status = application.status ?? 'SUBMITTED';
+  const history = application.status_history ?? application.statusHistory ?? [];
+  const deficiencies = application.deficiencies ?? [];
+  const canMakeFinalDecision = user?.role === 'admin' || user?.role === 'approver';
 
   return (
     <div className="min-h-full bg-muted/30">
@@ -177,14 +182,14 @@ export default function OfficerApplicationDetail() {
           <div className="border-b border-border p-6">
             <h3 className="font-semibold mb-4">Quick Actions</h3>
             <div className="space-y-3">
-              <button
-                disabled={actionLoading || status === 'APPROVED'}
+              {canMakeFinalDecision && <button
+                disabled={actionLoading || status.toUpperCase() === 'APPROVED'}
                 onClick={() => handleStatusUpdate('APPROVED')}
                 className="w-full py-3 bg-success text-success-foreground rounded-lg font-medium hover:bg-success/90 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
                 Approve Application
-              </button>
+              </button>}
               <button
                 disabled={actionLoading}
                 onClick={() => handleStatusUpdate('PENDING_DOCUMENTS')}
@@ -193,14 +198,14 @@ export default function OfficerApplicationDetail() {
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-5 h-5" />}
                 Raise Deficiency
               </button>
-              <button
+              {canMakeFinalDecision && <button
                 disabled={actionLoading || status === 'REJECTED'}
                 onClick={() => handleStatusUpdate('REJECTED')}
                 className="w-full py-3 bg-destructive text-destructive-foreground rounded-lg font-medium hover:bg-destructive/90 flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-5 h-5" />}
                 Reject Application
-              </button>
+              </button>}
             </div>
           </div>
 
@@ -221,25 +226,36 @@ export default function OfficerApplicationDetail() {
               <h3 className="font-semibold">Activity Timeline</h3>
             </div>
             <div className="space-y-4">
-              <div className="relative pl-6 pb-4 border-l-2 border-muted">
-                <div className="absolute left-0 top-0 -translate-x-1/2 w-4 h-4 rounded-full bg-success" />
-                <p className="text-sm font-medium">Application Submitted</p>
-                <p className="text-xs text-muted-foreground">
-                  Citizen · {application.created_at ? new Date(application.created_at).toLocaleString('en-IN') : '—'}
-                </p>
-              </div>
-              {status !== 'SUBMITTED' && status !== 'PENDING' && (
-                <div className="relative pl-6 border-l-2 border-muted">
+              {history.length > 0 ? history.map((entry: any, index: number) => (
+                <div key={entry.id || `${entry.to_status || status}-${index}`} className="relative pl-6 border-l-2 border-muted">
                   <div className={`absolute left-0 top-0 -translate-x-1/2 w-4 h-4 rounded-full ${
-                    status === 'APPROVED' || status === 'COMPLETED' ? 'bg-success' :
-                    status === 'REJECTED' ? 'bg-destructive' : 'bg-warning'
+                    String(entry.to_status || status).toUpperCase() === 'APPROVED' || String(entry.to_status || status).toUpperCase() === 'COMPLETED' ? 'bg-success' :
+                    String(entry.to_status || status).toUpperCase() === 'REJECTED' ? 'bg-destructive' :
+                    String(entry.to_status || status).toUpperCase() === 'PENDING_DOCUMENTS' ? 'bg-warning' : 'bg-primary'
                   }`} />
-                  <p className="text-sm font-medium">Status: {status}</p>
+                  <p className="text-sm font-medium">{entry.title || entry.event_type || 'Status update'}</p>
                   <p className="text-xs text-muted-foreground">
-                    Officer · {application.updated_at ? new Date(application.updated_at).toLocaleString('en-IN') : '—'}
+                    {entry.notes || entry.stage || entry.to_status || 'Updated'} · {entry.created_at ? new Date(entry.created_at).toLocaleString('en-IN') : '—'}
+                  </p>
+                </div>
+              )) : (
+                <div className="relative pl-6 pb-4 border-l-2 border-muted">
+                  <div className="absolute left-0 top-0 -translate-x-1/2 w-4 h-4 rounded-full bg-success" />
+                  <p className="text-sm font-medium">Application Submitted</p>
+                  <p className="text-xs text-muted-foreground">
+                    Citizen · {application.created_at ? new Date(application.created_at).toLocaleString('en-IN') : '—'}
                   </p>
                 </div>
               )}
+              {deficiencies.length > 0 && deficiencies.map((deficiency: any) => (
+                <div key={deficiency.id} className="relative pl-6 border-l-2 border-warning">
+                  <div className={`absolute left-0 top-0 -translate-x-1/2 w-4 h-4 rounded-full ${deficiency.status === 'resolved' ? 'bg-success' : 'bg-warning'}`} />
+                  <p className="text-sm font-medium">{deficiency.title || 'Deficiency'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {deficiency.description || 'Additional documents required'} · {deficiency.created_at ? new Date(deficiency.created_at).toLocaleString('en-IN') : '—'}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </div>

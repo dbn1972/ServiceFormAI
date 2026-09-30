@@ -32,8 +32,18 @@ export default function PublicFooter() {
                 </Link>
               </li>
               <li>
+                <Link to="/developers" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  Developer Portal
+                </Link>
+              </li>
+              <li>
                 <Link to="/features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                   Features
+                </Link>
+              </li>
+              <li>
+                <Link to="/install" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  Installation
                 </Link>
               </li>
               <li>

@@ -8,7 +8,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ScalabilityConfig, ScalabilityConfigService } from './scalability-config.service';
@@ -16,7 +16,7 @@ import { ScalabilityMetricsService } from './scalability-metrics.service';
 import { QueueService } from './queue.service';
 
 @Controller('admin/scalability')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(TenantStaffAuthGuard, RolesGuard)
 @Roles('admin')
 export class ScalabilityController {
   constructor(

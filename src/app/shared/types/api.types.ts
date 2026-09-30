@@ -38,6 +38,39 @@ export interface LoginResponse {
   tokens: AuthTokens;
 }
 
+export interface IssueCitizenOtpResponse {
+  challengeId: string;
+  retryAfterSeconds: number;
+}
+
+export interface VerifyCitizenOtpDto {
+  challengeId: string;
+  mobile: string;
+  code: string;
+}
+
+export interface TenantOnboardingRequest {
+  orgName: string;
+  orgType: string;
+  state: string;
+  district?: string;
+  municipalityName?: string;
+  officeName?: string;
+  subdomain: string;
+  adminEmail: string;
+  adminName: string;
+  adminMobile: string;
+  requestedServices?: string[];
+}
+
+export interface TenantOnboardingResponse {
+  tenantId: string;
+  subdomain: string;
+  status: string;
+  provisioningStatus: string;
+  adminEmail: string;
+}
+
 // ============================================================================
 // Tenant Types (Producer Side)
 // ============================================================================
@@ -50,6 +83,39 @@ export interface Tenant {
   logo?: string;
   primaryColor?: string;
   secondaryColor?: string;
+  governanceScope?: {
+    owner_level?: 'ministry' | 'department' | 'state' | 'district' | 'district_office' | 'municipality' | 'panchayat';
+    monitoring_mode?: 'central' | 'state' | 'district' | 'department';
+    jurisdiction_model?: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+    ministry_code?: string;
+    ministry_name?: string;
+    department_code?: string;
+    department_name?: string;
+    state_lgd_code?: string;
+    state_name?: string;
+    district_lgd_code?: string;
+    district_name?: string;
+    subdistrict_lgd_code?: string;
+    subdistrict_name?: string;
+    block_lgd_code?: string;
+    block_name?: string;
+    tehsil_code?: string;
+    tehsil_name?: string;
+    taluka_code?: string;
+    taluka_name?: string;
+    municipality_lgd_code?: string;
+    municipality_name?: string;
+    ulb_type?: 'municipal_corporation' | 'municipality' | 'nagar_panchayat' | 'town_panchayat' | 'other';
+    panchayat_lgd_code?: string;
+    panchayat_name?: string;
+    gram_panchayat_code?: string;
+    gram_panchayat_name?: string;
+    ward_code?: string;
+    ward_name?: string;
+    village_code?: string;
+    village_name?: string;
+    lgd_standard?: string;
+  } | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -63,10 +129,44 @@ export interface TenantService {
   name: string;
   description: string;
   category: string;
+  serviceScope?: {
+    owner_level?: 'ministry' | 'department' | 'state' | 'district' | 'district_office' | 'municipality' | 'panchayat';
+    monitoring_mode?: 'central' | 'state' | 'district' | 'department';
+    jurisdiction_model?: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+    ministry_code?: string;
+    ministry_name?: string;
+    department_code?: string;
+    department_name?: string;
+    state_lgd_code?: string;
+    state_name?: string;
+    district_lgd_code?: string;
+    district_name?: string;
+    subdistrict_lgd_code?: string;
+    subdistrict_name?: string;
+    lgd_standard?: string;
+    block_lgd_code?: string;
+    block_name?: string;
+    tehsil_code?: string;
+    tehsil_name?: string;
+    taluka_code?: string;
+    taluka_name?: string;
+    municipality_lgd_code?: string;
+    municipality_name?: string;
+    ulb_type?: 'municipal_corporation' | 'municipality' | 'nagar_panchayat' | 'town_panchayat' | 'other';
+    panchayat_lgd_code?: string;
+    panchayat_name?: string;
+    gram_panchayat_code?: string;
+    gram_panchayat_name?: string;
+    ward_code?: string;
+    ward_name?: string;
+    village_code?: string;
+    village_name?: string;
+  } | null;
   formSchema: FormSchema;
   workflowConfig?: WorkflowConfig;
   eligibilityRules?: string[] | Record<string, any>;
   requiredDocuments?: Array<string | { name: string; type?: string; source?: string; required?: boolean }>;
+  manifest?: Record<string, any>;
   isPublished: boolean;
   slaDays?: number;
   fees?: number;
@@ -158,6 +258,8 @@ export interface ServiceSchemaResponse {
   service_name: string;
   category: string;
   form_schema: FormSchema;
+  schema_version: number;
+  service_release_id: string;
 }
 
 // ============================================================================
@@ -181,6 +283,7 @@ export interface Application {
   tenant?: Tenant;
   statusHistory?: ApplicationStatusHistory[];
   documents?: ApplicationDocument[];
+  deficiencies?: ApplicationDeficiency[];
 }
 
 export type ApplicationStatus = 
@@ -210,8 +313,48 @@ export interface ApplicationDocument {
   type: string;
   url: string;
   uploadedAt: string;
+  documentId?: string;
+  documentType?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  status?: string;
   verifiedAt?: string;
   verifiedBy?: string;
+}
+
+export interface ApplicationDeficiency {
+  id: string;
+  applicationId: string;
+  title: string;
+  description: string;
+  status: 'open' | 'resolved' | string;
+  dueAt?: string | null;
+  resolvedAt?: string | null;
+  resolutionNotes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type ConsentStatus = 'pending' | 'granted' | 'denied' | 'revoked' | 'expired';
+
+export interface ConsentRecord {
+  id: string;
+  consumer_id: string;
+  tenant_id: string;
+  purpose: string;
+  purpose_description: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  status: ConsentStatus;
+  request_id?: string | null;
+  granted_at?: string | null;
+  denied_at?: string | null;
+  revoked_at?: string | null;
+  expires_at?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ============================================================================
@@ -220,12 +363,18 @@ export interface ApplicationDocument {
 
 // Auth DTOs
 export interface RegisterTenantDto {
+  tenantId: string;
   email: string;
   password: string;
-  name: string;
-  tenantName: string;
-  tenantType: Tenant['type'];
-  subdomain: string;
+  role: string;
+  firstName?: string;
+  lastName?: string;
+  orgName?: string;
+  organizationType?: string;
+  state?: string;
+  district?: string;
+  municipalityName?: string;
+  officeName?: string;
 }
 
 export interface RegisterConsumerDto {
@@ -366,6 +515,8 @@ export interface CreateServiceDto {
   category: string;
   formSchema: FormSchema;
   workflowConfig?: WorkflowConfig;
+  manifest?: Record<string, any>;
+  serviceScope?: TenantService['serviceScope'];
 }
 
 export interface UpdateServiceDto {
@@ -375,12 +526,31 @@ export interface UpdateServiceDto {
   formSchema?: FormSchema;
   workflowConfig?: WorkflowConfig;
   isPublished?: boolean;
+  manifest?: Record<string, any>;
+  serviceScope?: TenantService['serviceScope'];
 }
 
 // Application DTOs
 export interface SubmitApplicationDto {
   serviceId: string;
   formData: Record<string, any>;
+  applicationId?: string;
+  schemaVersion?: number;
+}
+
+export interface SaveApplicationDraftDto {
+  formData: Record<string, any>;
+  applicationId?: string;
+  schemaVersion: number;
+}
+
+export interface SaveApplicationDraftResponse {
+  application_id: string;
+  service_id: string;
+  service_release_id: string;
+  schema_version: number;
+  tracking_number: string;
+  updated_at: string;
 }
 
 export interface UpdateApplicationStatusDto {

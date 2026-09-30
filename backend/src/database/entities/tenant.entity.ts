@@ -17,6 +17,9 @@ export class Tenant {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ type: 'varchar', length: 63, nullable: true, unique: true })
+  subdomain: string | null;
+
   // 'government' | 'enterprise' | 'ngo' | 'other'
   @Column({ type: 'varchar', length: 50 })
   type: string;
@@ -31,6 +34,45 @@ export class Tenant {
   @Column({ type: 'varchar', length: 255, nullable: true })
   contact_email: string | null;
 
+  // ─── Governance scope ───────────────────────────────────────────────────
+  @Column({ type: 'jsonb', nullable: true })
+  governance_scope: {
+    owner_level?: 'ministry' | 'department' | 'state' | 'district' | 'district_office' | 'municipality' | 'panchayat';
+    monitoring_mode?: 'central' | 'state' | 'district' | 'department';
+    jurisdiction_model?: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+    ministry_code?: string;
+    ministry_name?: string;
+    department_code?: string;
+    department_name?: string;
+    state_lgd_code?: string;
+    state_name?: string;
+    district_lgd_code?: string;
+    district_name?: string;
+    subdistrict_lgd_code?: string;
+    subdistrict_name?: string;
+    block_lgd_code?: string;
+    block_name?: string;
+    tehsil_code?: string;
+    tehsil_name?: string;
+    taluka_code?: string;
+    taluka_name?: string;
+    municipality_lgd_code?: string;
+    municipality_name?: string;
+    ulb_type?: 'municipal_corporation' | 'municipality' | 'nagar_panchayat' | 'town_panchayat' | 'other';
+    panchayat_lgd_code?: string;
+    panchayat_name?: string;
+    gram_panchayat_code?: string;
+    gram_panchayat_name?: string;
+    ward_code?: string;
+    ward_name?: string;
+    village_code?: string;
+    village_name?: string;
+    lgd_standard?: string;
+  } | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  onboarding_metadata: Record<string, unknown> | null;
+
   // ─── Branding ───────────────────────────────────────────────────────────
   @Column({ type: 'jsonb', nullable: true })
   branding: {
@@ -41,7 +83,6 @@ export class Tenant {
     support_phone?: string;
     footer_text?: string;
   } | null;
-
   // ─── Auth policy ────────────────────────────────────────────────────────
   @Column({ type: 'jsonb', nullable: true })
   auth_policy: {
@@ -75,6 +116,13 @@ export class Tenant {
   integration_policy: {
     allowed_providers?: string[];
     sandbox_mode?: boolean;
+  } | null;
+
+  // ─── Action policy ───────────────────────────────────────────────────────
+  @Column({ type: 'jsonb', nullable: true })
+  action_policy: {
+    fetch_allowlist?: string[];
+    actions_enabled?: boolean;
   } | null;
 
   @CreateDateColumn()

@@ -16,6 +16,7 @@ import type { Request } from 'express';
 import { ConsentService } from './consent.service';
 import { RequestConsentDto, AdminRevokeConsentDto } from './dto/request-consent.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -100,7 +101,7 @@ export class ConsentController {
 
   // ─── Admin-facing endpoints ───────────────────────────────────────────────
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(TenantStaffAuthGuard, RolesGuard)
   @Roles('admin', 'officer')
   @Get('producer/consent')
   async getTenantConsentRecords(
@@ -118,7 +119,7 @@ export class ConsentController {
     return { success: true, data: result };
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(TenantStaffAuthGuard, RolesGuard)
   @Roles('admin', 'officer')
   @Get('producer/consent/stats')
   async getConsentStats(@TenantId() tenantId: string) {
@@ -127,7 +128,7 @@ export class ConsentController {
   }
 
   /** Admin override revoke — for compliance/GDPR */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(TenantStaffAuthGuard, RolesGuard)
   @Roles('admin')
   @Patch('producer/consent/:consentId/revoke')
   async adminRevokeConsent(
@@ -148,7 +149,7 @@ export class ConsentController {
   }
 
   /** GDPR right-to-erasure: bulk revoke all consents for a consumer */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(TenantStaffAuthGuard, RolesGuard)
   @Roles('admin')
   @Delete('producer/consent/consumer/:consumerId')
   @HttpCode(HttpStatus.OK)
@@ -167,7 +168,7 @@ export class ConsentController {
   }
 
   /** Maintenance: expire stale consents (admin only) */
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(TenantStaffAuthGuard, RolesGuard)
   @Roles('admin', 'platform_admin')
   @Post('producer/consent/expire-stale')
   @HttpCode(HttpStatus.OK)
@@ -179,10 +180,6 @@ export class ConsentController {
   // ─── Shared helper ────────────────────────────────────────────────────────
 
   private getIp(req: Request): string {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.length > 0) {
-      return forwarded.split(',')[0].trim();
-    }
     return req.ip || req.socket?.remoteAddress || 'unknown';
   }
 }

@@ -50,6 +50,8 @@ export class S3StorageService {
     const endpoint = config.get<string>('AWS_S3_ENDPOINT', '');
     const forcePathStyle =
       config.get<string>('AWS_S3_FORCE_PATH_STYLE', 'false') === 'true';
+    const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID', '');
+    const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY', '');
 
     this.bucket = config.get<string>('AWS_S3_BUCKET', 'serviceformai-documents');
 
@@ -61,10 +63,9 @@ export class S3StorageService {
             forcePathStyle,
           }
         : {}),
-      credentials: {
-        accessKeyId: config.get<string>('AWS_ACCESS_KEY_ID', 'test'),
-        secretAccessKey: config.get<string>('AWS_SECRET_ACCESS_KEY', 'test'),
-      },
+        ...(accessKeyId && secretAccessKey
+          ? { credentials: { accessKeyId, secretAccessKey } }
+          : {}),
     });
 
     this.logger.log(

@@ -4,6 +4,7 @@ import { Shield, ArrowLeft, Loader2 } from 'lucide-react';
 import { sendAadhaarOTP, verifyAadhaarOTP } from '../services/sso';
 import { useApp } from '../context/AppContext';
 import { toast } from 'sonner';
+import { clearPendingOnboardingIdentity, isOnboardingCompletedForUser, setPendingOnboardingIdentity } from '../utils/onboarding';
 
 export default function AadhaarOTPLogin() {
   const { loginWithSSO } = useApp();
@@ -117,7 +118,7 @@ export default function AadhaarOTPLogin() {
 
       if (verification.success) {
         // Login with Aadhaar profile
-        await loginWithSSO('aadhaar', {
+        const authenticatedUser = await loginWithSSO('aadhaar', {
           id: verification.aadhaar_number,
           name: verification.name,
           email: '', // Will be collected during onboarding
@@ -126,9 +127,16 @@ export default function AadhaarOTPLogin() {
 
         toast.success('Logged in successfully!');
 
+        const onboardingCompleted = isOnboardingCompletedForUser(authenticatedUser);
+        if (!onboardingCompleted) {
+          setPendingOnboardingIdentity(authenticatedUser?.id || verification.aadhaar_number);
+        } else {
+          clearPendingOnboardingIdentity();
+        }
+
         // Redirect to dashboard
         setTimeout(() => {
-          window.location.href = '/dashboard';
+          window.location.href = onboardingCompleted ? '/dashboard' : '/onboarding/citizen';
         }, 1000);
       } else {
         toast.error('Invalid OTP');

@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ProducerService } from './producer.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
@@ -19,9 +19,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 import { UpdateApplicationStatusDto } from './dto/update-application-status.dto';
+import { SchemaValidationGuard } from '../validation/schema-validation.guard';
 
 @Controller('producer')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(TenantStaffAuthGuard, RolesGuard)
 export class ProducerController {
   constructor(private readonly producerService: ProducerService) {}
 
@@ -29,6 +30,7 @@ export class ProducerController {
 
   @Post('services')
   @Roles('admin', 'officer')
+  @UseGuards(SchemaValidationGuard)
   async createService(@TenantId() tenantId: string, @Body() dto: CreateServiceDto) {
     return { success: true, data: await this.producerService.createService(tenantId, dto) };
   }
@@ -48,6 +50,35 @@ export class ProducerController {
     return { success: true, data: result };
   }
 
+  @Get('service-templates')
+  @Roles('admin', 'officer')
+  async getCertifiedServiceTemplates() {
+    return { success: true, data: this.producerService.getCertifiedServiceTemplates() };
+  }
+
+  @Post('service-templates/:templateId/clone')
+  @Roles('admin', 'officer')
+  @UseGuards(SchemaValidationGuard)
+  async cloneCertifiedServiceTemplate(
+    @TenantId() tenantId: string,
+    @Param('templateId') templateId: string,
+    @Body() dto: CreateServiceDto,
+  ) {
+    return {
+      success: true,
+      data: await this.producerService.cloneCertifiedServiceTemplate(tenantId, templateId, dto),
+    };
+  }
+
+  @Post('services/:serviceId/simulate')
+  @Roles('admin', 'officer')
+  async simulateServiceDraft(
+    @TenantId() tenantId: string,
+    @Param('serviceId') serviceId: string,
+  ) {
+    return { success: true, data: await this.producerService.simulateServiceDraft(tenantId, serviceId) };
+  }
+
   @Get('services/:serviceId')
   @Roles('admin', 'officer', 'clerk')
   async getServiceById(@TenantId() tenantId: string, @Param('serviceId') serviceId: string) {
@@ -56,6 +87,7 @@ export class ProducerController {
 
   @Put('services/:serviceId')
   @Roles('admin', 'officer')
+  @UseGuards(SchemaValidationGuard)
   async updateService(
     @TenantId() tenantId: string,
     @Param('serviceId') serviceId: string,
@@ -72,8 +104,29 @@ export class ProducerController {
 
   @Post('services/:serviceId/publish')
   @Roles('admin', 'officer')
-  async publishService(@TenantId() tenantId: string, @Param('serviceId') serviceId: string) {
-    return { success: true, data: await this.producerService.setServicePublished(tenantId, serviceId, true) };
+  async publishService(
+    @TenantId() tenantId: string,
+    @Param('serviceId') serviceId: string,
+    @CurrentUser() user: any,
+  ) {
+    const approval = await this.producerService.requestServicePublication(tenantId, serviceId, user.id);
+    return { success: true, data: { ...approval, publicationStatus: 'pending_approval' } };
+  }
+
+  @Get('service-publication-approvals')
+  @Roles('admin')
+  async getPendingServicePublicationApprovals(@TenantId() tenantId: string) {
+    return { success: true, data: await this.producerService.getPendingServicePublicationApprovals(tenantId) };
+  }
+
+  @Post('services/:serviceId/approve-publication')
+  @Roles('admin')
+  async approveServicePublication(
+    @TenantId() tenantId: string,
+    @Param('serviceId') serviceId: string,
+    @CurrentUser() user: any,
+  ) {
+    return { success: true, data: await this.producerService.approveServicePublication(tenantId, serviceId, user.id) };
   }
 
   @Post('services/:serviceId/unpublish')
@@ -85,7 +138,7 @@ export class ProducerController {
   // Applications
 
   @Get('applications')
-  @Roles('admin', 'officer', 'clerk')
+  @Roles('admin', 'officer', 'clerk', 'approver')
   async getApplications(
     @TenantId() tenantId: string,
     @Query('status') status?: string,
@@ -102,19 +155,20 @@ export class ProducerController {
   }
 
   @Get('applications/:applicationId')
-  @Roles('admin', 'officer', 'clerk')
+  @Roles('admin', 'officer', 'clerk', 'approver')
   async getApplicationById(@TenantId() tenantId: string, @Param('applicationId') applicationId: string) {
     return { success: true, data: await this.producerService.getApplicationById(tenantId, applicationId) };
   }
 
   @Patch('applications/:applicationId/status')
-  @Roles('admin', 'officer', 'clerk')
+  @Roles('admin', 'officer', 'clerk', 'approver')
   async updateApplicationStatus(
     @TenantId() tenantId: string,
     @Param('applicationId') applicationId: string,
     @Body() dto: UpdateApplicationStatusDto,
+    @CurrentUser() actor: any,
   ) {
-    return { success: true, data: await this.producerService.updateApplicationStatus(tenantId, applicationId, dto.status, dto.stage) };
+    return { success: true, data: await this.producerService.updateApplicationStatus(tenantId, applicationId, dto.status, dto.stage, dto.notes, dto.deficiencyDueAt, actor) };
   }
 
   @Post('applications/:applicationId/assign')
@@ -200,7 +254,7 @@ export class ProducerController {
   @Roles('admin')
   async updateTenantSettings(
     @TenantId() tenantId: string,
-    @Body() body: { name?: string; logo?: string; primaryColor?: string; secondaryColor?: string; customDomain?: string },
+    @Body() body: { name?: string; logo?: string; primaryColor?: string; secondaryColor?: string; customDomain?: string; theme?: unknown; governanceScope?: unknown },
   ) {
     return { success: true, data: await this.producerService.updateTenantSettings(tenantId, body) };
   }

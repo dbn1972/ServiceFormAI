@@ -21,7 +21,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 
 import { QueueWorkerService } from './queue-worker.service';
 import { QueueService } from '../scalability/queue.service';
@@ -31,6 +31,7 @@ import { TenantService } from '../database/entities/tenant-service.entity';
 import { Application } from '../database/entities/application.entity';
 import { ConsumerUser } from '../database/entities/consumer-user.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { OutboxEvent } from '../database/entities/outbox-event.entity';
 
 import {
   makeRepo,
@@ -53,13 +54,23 @@ async function buildWorker() {
   const applicationRepo = makeRepo();
   const consumerRepo = makeRepo();
   const auditLogRepo = makeRepo();
+  const outboxRepo = makeRepo();
   const metrics = makeMockMetrics();
+  const repositories = new Map<any, any>([
+    [OutboxEvent, outboxRepo],
+  ]);
+  const dataSource = {
+    transaction: jest.fn(async (callback) => callback({
+      getRepository: (entity) => repositories.get(entity),
+    })),
+  };
 
   const mockQueue: Partial<QueueService> = {
     claimNextMessage: jest.fn().mockResolvedValue(null),
     acknowledgeMessage: jest.fn().mockResolvedValue(undefined),
     failMessage: jest.fn().mockResolvedValue(undefined),
     isWritePathEnabled: jest.fn().mockReturnValue(false),
+    enqueueWriteCommand: jest.fn().mockResolvedValue({ queued: true }),
   };
 
   const module: TestingModule = await Test.createTestingModule({
@@ -72,6 +83,8 @@ async function buildWorker() {
       { provide: getRepositoryToken(Application), useValue: applicationRepo },
       { provide: getRepositoryToken(ConsumerUser), useValue: consumerRepo },
       { provide: getRepositoryToken(AuditLog), useValue: auditLogRepo },
+      { provide: getRepositoryToken(OutboxEvent), useValue: outboxRepo },
+      { provide: getDataSourceToken(), useValue: dataSource },
     ],
   }).compile();
 
@@ -87,8 +100,52 @@ async function buildWorker() {
     auditLogRepo,
     metrics,
     mockQueue,
+    outboxRepo,
   };
 }
+
+describe('QueueWorkerService transactional outbox', () => {
+  it('enqueues an outbox row idempotently and marks it published', async () => {
+    const { worker, outboxRepo, mockQueue } = await buildWorker();
+    const event = {
+      id: 'event-1',
+      event_type: 'application.status-updated',
+      aggregate_type: 'application',
+      aggregate_id: TEST_APPLICATION_ID,
+      tenant_id: TEST_TENANT_ID,
+      payload: { applicationId: TEST_APPLICATION_ID, status: 'under_review' },
+      idempotency_key: `application.status:${TEST_APPLICATION_ID}:v2`,
+      status: 'pending',
+      created_at: new Date(),
+    };
+    outboxRepo.findOne.mockResolvedValue(event);
+    outboxRepo.save.mockImplementation(async (value: any) => value);
+
+    await expect(worker.processPendingOutboxEvent()).resolves.toBe(true);
+
+    expect(mockQueue.enqueueWriteCommand).toHaveBeenCalledWith({
+      type: 'application.status-updated',
+      module: 'transactional-outbox',
+      payload: event.payload,
+      idempotencyKey: event.idempotency_key,
+    });
+    expect(outboxRepo.save).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'published' }));
+  });
+});
+
+describe('QueueWorkerService — service archive event', () => {
+  it('routes service.archived through service mutation delivery', async () => {
+    const { worker, tenantRepo } = await buildWorker();
+    tenantRepo.findOne.mockResolvedValue({ notification_policy: null });
+
+    await processMessage(worker, 'service.archived', {
+      serviceId: TEST_SERVICE_ID,
+      tenantId: TEST_TENANT_ID,
+    });
+
+    expect(tenantRepo.findOne).toHaveBeenCalledWith({ where: { id: TEST_TENANT_ID } });
+  });
+});
 
 /** Helper to invoke processMessage via a reflected private method */
 async function processMessage(worker: QueueWorkerService, type: string, payload: Record<string, unknown>) {
@@ -213,6 +270,26 @@ describe('QueueWorkerService — service.persist.create', () => {
   });
 });
 
+describe('QueueWorkerService — service.persist.update publication boundary', () => {
+  it('cannot publish a draft through a queued update command', async () => {
+    const { worker, serviceRepo } = await buildWorker();
+    const draft = testTenantService({ published: false, archived: false });
+    serviceRepo.findOne.mockResolvedValue(draft);
+
+    await processMessage(worker, 'service.persist.update', {
+      serviceId: TEST_SERVICE_ID,
+      tenantId: TEST_TENANT_ID,
+      published: true,
+      name: 'Edited draft',
+    });
+
+    expect(serviceRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Edited draft',
+      published: false,
+    }));
+  });
+});
+
 // ─── C. service.persist.delete ───────────────────────────────────────────────
 
 describe('QueueWorkerService — service.persist.delete', () => {
@@ -223,17 +300,21 @@ describe('QueueWorkerService — service.persist.delete', () => {
     ({ worker, serviceRepo } = await buildWorker());
   });
 
-  it('removes service when it exists', async () => {
+  it('archives service when it exists', async () => {
     const svc = testTenantService();
     serviceRepo.findOne.mockResolvedValue(svc);
-    serviceRepo.remove = jest.fn().mockResolvedValue(undefined);
+    serviceRepo.save = jest.fn().mockImplementation(async (value) => value);
 
     await processMessage(worker, 'service.persist.delete', {
       serviceId: TEST_SERVICE_ID,
       tenantId: TEST_TENANT_ID,
     });
 
-    expect(serviceRepo.remove).toHaveBeenCalledWith(svc);
+    expect(serviceRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      id: TEST_SERVICE_ID,
+      published: false,
+      archived: true,
+    }));
   });
 
   it('is idempotent — does not throw when service already deleted', async () => {

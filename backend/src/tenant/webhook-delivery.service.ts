@@ -38,6 +38,11 @@ export class WebhookDeliveryService {
    * all retries exhausted. Does NOT throw.
    */
   async deliver(url: string, secret: string | undefined, event: WebhookEvent): Promise<boolean> {
+    if (!secret || secret.length === 0) {
+      this.logger.warn(`Refusing to deliver unsigned webhook to ${url}`);
+      return false;
+    }
+
     const body = JSON.stringify(event);
     const signature = secret ? this.sign(body, secret) : undefined;
 

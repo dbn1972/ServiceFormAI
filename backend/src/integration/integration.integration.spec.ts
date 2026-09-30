@@ -92,12 +92,12 @@ describe('Integration provider — RBAC', () => {
       .expect(HttpStatus.UNAUTHORIZED);
   });
 
-  it('returns 403 for role=consumer', async () => {
+  it('returns 401 for citizen credentials', async () => {
     const token = signTestJwt({ role: 'consumer', tenantId: TEST_TENANT_ID });
     await request(app.getHttpServer())
       .get('/producer/integrations')
       .set('Authorization', `Bearer ${token}`)
-      .expect(HttpStatus.FORBIDDEN);
+      .expect(HttpStatus.UNAUTHORIZED);
   });
 
   it('returns 403 for role=officer', async () => {

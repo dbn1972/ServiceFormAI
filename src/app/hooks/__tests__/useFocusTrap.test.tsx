@@ -1,7 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
-import { renderHook } from '@testing-library/react';
+import { fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { useFocusTrap } from '../useFocusTrap';
-import { fireEvent } from '@testing-library/react';
+
+function FocusTrapFixture({ onEscape }: { onEscape?: () => void }) {
+  const trapRef = useFocusTrap<HTMLDivElement>(true, { onEscape });
+
+  return (
+    <div ref={trapRef} role="group" aria-label="Focus trap">
+      <button type="button">First</button>
+      <button type="button">Last</button>
+    </div>
+  );
+}
 
 describe('useFocusTrap', () => {
   it('should return a ref object', () => {
@@ -10,95 +20,43 @@ describe('useFocusTrap', () => {
   });
 
   it('should store previous active element when trap is activated', () => {
-    const button = document.createElement('button');
-    document.body.appendChild(button);
-    button.focus();
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
 
-    const { result } = renderHook(() => useFocusTrap(true));
+    const { unmount } = render(<FocusTrapFixture />);
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
 
-    const container = document.createElement('div');
-    const input = document.createElement('input');
-    container.appendChild(input);
-    document.body.appendChild(container);
-
-    if (result.current.current) {
-      (result.current as any).current = container;
-    }
-
-    expect(document.activeElement).toBeTruthy();
-
-    document.body.removeChild(button);
-    document.body.removeChild(container);
+    unmount();
+    expect(opener).toHaveFocus();
+    opener.remove();
   });
 
   it('should call onEscape when Escape key is pressed', () => {
     const onEscape = vi.fn();
-    const { result } = renderHook(() =>
-      useFocusTrap(true, {
-        onEscape,
-      })
-    );
+    render(<FocusTrapFixture onEscape={onEscape} />);
 
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-
-    if (result.current.current) {
-      (result.current as any).current = container;
-    }
-
-    fireEvent.keyDown(container, { key: 'Escape' });
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Focus trap' }), { key: 'Escape' });
 
     expect(onEscape).toHaveBeenCalled();
-
-    document.body.removeChild(container);
   });
 
   it('should focus first element when activated', () => {
-    const { result } = renderHook(() => useFocusTrap(true));
+    render(<FocusTrapFixture />);
 
-    const container = document.createElement('div');
-    const button1 = document.createElement('button');
-    const button2 = document.createElement('button');
-
-    button1.textContent = 'Button 1';
-    button2.textContent = 'Button 2';
-
-    container.appendChild(button1);
-    container.appendChild(button2);
-    document.body.appendChild(container);
-
-    if (result.current.current) {
-      (result.current as any).current = container;
-    }
-
-    // Note: Testing focus in jsdom is limited
-    expect(container.querySelectorAll('button').length).toBe(2);
-
-    document.body.removeChild(container);
+    expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
   });
 
   it('should trap Tab navigation within container', () => {
-    const { result } = renderHook(() => useFocusTrap(true));
+    render(<FocusTrapFixture />);
 
-    const container = document.createElement('div');
-    const button1 = document.createElement('button');
-    const button2 = document.createElement('button');
-
-    container.appendChild(button1);
-    container.appendChild(button2);
-    document.body.appendChild(container);
-
-    if (result.current.current) {
-      (result.current as any).current = container;
-    }
-
-    button2.focus();
+    const first = screen.getByRole('button', { name: 'First' });
+    const last = screen.getByRole('button', { name: 'Last' });
+    last.focus();
 
     // Tab from last element should focus first
-    fireEvent.keyDown(container, { key: 'Tab' });
+    fireEvent.keyDown(last, { key: 'Tab' });
 
-    expect(container.contains(document.activeElement)).toBeTruthy();
-
-    document.body.removeChild(container);
+    expect(first).toHaveFocus();
   });
 });

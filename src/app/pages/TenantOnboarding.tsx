@@ -1,9 +1,10 @@
+import type { TenantOnboardingResponse } from '../shared/types/api.types';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { authService } from '../services/api/auth.service';
 import {
   Building2, User, FileCode, Palette, CheckCircle, ArrowRight, ArrowLeft,
-  Upload, Shield, Globe, Phone, Mail, MapPin, ChevronDown, Eye, EyeOff,
+  Upload, Shield, Globe, Phone, Mail, MapPin, ChevronDown,
   Plus, Trash2, AlertCircle, Sparkles, Check, Clock, Info, Star,
   Briefcase, Landmark, Hospital, GraduationCap, TreePine, Car, Zap,
   RefreshCw, Lock, BadgeCheck, Copy, ExternalLink
@@ -35,6 +36,7 @@ const SERVICE_TEMPLATES = [
 const ORG_TYPES = [
   { value: 'state-dept', label: 'State Government Department' },
   { value: 'central-ministry', label: 'Central Government Ministry' },
+  { value: 'district-office', label: 'District Office / Collectorate' },
   { value: 'municipality', label: 'Urban Local Body / Municipality' },
   { value: 'panchayat', label: 'Gram Panchayat / Block Office' },
   { value: 'parastatal', label: 'Parastatal / PSU' },
@@ -48,6 +50,70 @@ const STATES = [
   'Punjab', 'Rajasthan', 'Tamil Nadu', 'Telangana', 'Uttar Pradesh',
   'Uttarakhand', 'West Bengal', 'Delhi (NCT)', 'Puducherry',
 ];
+
+const GOVERNMENT_HIERARCHY: Record<string, Record<string, string[]>> = {
+  Maharashtra: {
+    Mumbai: ['Municipal Corporation of Greater Mumbai'],
+    Pune: ['Pune Municipal Corporation', 'Pimpri Chinchwad Municipal Corporation', 'Baramati Municipal Council'],
+    Nashik: ['Nashik Municipal Corporation', 'Malegaon Municipal Corporation'],
+    Nagpur: ['Nagpur Municipal Corporation'],
+    Thane: ['Thane Municipal Corporation', 'Kalyan Dombivli Municipal Corporation', 'Mira Bhayandar Municipal Corporation'],
+  },
+  Karnataka: {
+    'Bengaluru Urban': ['Bruhat Bengaluru Mahanagara Palike'],
+    Mysuru: ['Mysuru City Corporation'],
+    Belagavi: ['Belagavi City Corporation'],
+    Mangaluru: ['Mangaluru City Corporation'],
+  },
+  'Tamil Nadu': {
+    Chennai: ['Greater Chennai Corporation'],
+    Coimbatore: ['Coimbatore City Municipal Corporation'],
+    Madurai: ['Madurai City Municipal Corporation'],
+    Tiruchirappalli: ['Tiruchirappalli City Municipal Corporation'],
+  },
+  Telangana: {
+    Hyderabad: ['Greater Hyderabad Municipal Corporation'],
+    Rangareddy: ['Badangpet Municipal Corporation'],
+    'Medchal-Malkajgiri': ['Boduppal Municipal Corporation'],
+    Warangal: ['Greater Warangal Municipal Corporation'],
+  },
+  'Uttar Pradesh': {
+    Lucknow: ['Lucknow Municipal Corporation'],
+    'Kanpur Nagar': ['Kanpur Municipal Corporation'],
+    Varanasi: ['Varanasi Municipal Corporation'],
+    Prayagraj: ['Prayagraj Municipal Corporation'],
+  },
+  Gujarat: {
+    Ahmedabad: ['Ahmedabad Municipal Corporation'],
+    Surat: ['Surat Municipal Corporation'],
+    Vadodara: ['Vadodara Municipal Corporation'],
+    Rajkot: ['Rajkot Municipal Corporation'],
+  },
+  Rajasthan: {
+    Jaipur: ['Jaipur Greater Municipal Corporation', 'Jaipur Heritage Municipal Corporation'],
+    Jodhpur: ['Jodhpur North Municipal Corporation', 'Jodhpur South Municipal Corporation'],
+    Kota: ['Kota Municipal Corporation'],
+    Udaipur: ['Udaipur Municipal Corporation'],
+  },
+  'West Bengal': {
+    Kolkata: ['Kolkata Municipal Corporation'],
+    Howrah: ['Howrah Municipal Corporation'],
+    Darjeeling: ['Siliguri Municipal Corporation'],
+    Asansol: ['Asansol Municipal Corporation'],
+  },
+  Kerala: {
+    Thiruvananthapuram: ['Thiruvananthapuram Municipal Corporation'],
+    Ernakulam: ['Kochi Municipal Corporation'],
+    Kozhikode: ['Kozhikode Municipal Corporation'],
+    Thrissur: ['Thrissur Municipal Corporation'],
+  },
+  'Delhi (NCT)': {
+    'New Delhi': ['New Delhi Municipal Council'],
+    Central: ['Municipal Corporation of Delhi'],
+    South: ['Municipal Corporation of Delhi'],
+    North: ['Municipal Corporation of Delhi'],
+  },
+};
 
 const COLOR_PRESETS = [
   { name: 'Government Blue', primary: '#1e3a8a', accent: '#3b82f6' },
@@ -93,6 +159,22 @@ function StepIndicator({ current }: { current: number }) {
 
 // ─── Step 1: Organization ────────────────────────────────────────────────────
 function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) => void }) {
+  const selectedState = data.state || '';
+  const selectedDistrict = data.district || '';
+  const districtOptions = selectedState ? Object.keys(GOVERNMENT_HIERARCHY[selectedState] || {}) : [];
+  const municipalityOptions = selectedState && selectedDistrict
+    ? GOVERNMENT_HIERARCHY[selectedState]?.[selectedDistrict] || []
+    : [];
+  const requiresDistrict = data.orgType === 'district-office' || data.orgType === 'municipality' || data.orgType === 'panchayat';
+  const requiresMunicipality = data.orgType === 'municipality';
+  const supportsDistrictSelect = districtOptions.length > 0;
+  const supportsMunicipalitySelect = municipalityOptions.length > 0;
+  const orgNamePlaceholder = data.orgType === 'municipality'
+    ? 'e.g. Pune Municipal Corporation'
+    : data.orgType === 'district-office'
+      ? 'e.g. Office of the District Collector, Pune'
+      : 'e.g. Directorate of Revenue, Maharashtra';
+
   return (
     <div className="space-y-6">
       <div>
@@ -127,7 +209,7 @@ function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) =>
             type="text"
             value={data.orgName || ''}
             onChange={e => onChange({ ...data, orgName: e.target.value })}
-            placeholder="e.g. Directorate of Revenue, Maharashtra"
+            placeholder={orgNamePlaceholder}
             className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
@@ -146,7 +228,14 @@ function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) =>
           <div className="relative">
             <select
               value={data.state || ''}
-              onChange={e => onChange({ ...data, state: e.target.value })}
+              onChange={e => onChange({
+                ...data,
+                state: e.target.value,
+                district: '',
+                municipalityName: '',
+                officeName: data.orgType === 'district-office' ? '' : data.officeName,
+                orgName: data.orgType === 'municipality' || data.orgType === 'district-office' ? '' : data.orgName,
+              })}
               className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
             >
               <option value="">Select State / UT</option>
@@ -156,15 +245,81 @@ function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) =>
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1.5">District (if applicable)</label>
-          <input
-            type="text"
-            value={data.district || ''}
-            onChange={e => onChange({ ...data, district: e.target.value })}
-            placeholder="e.g. Pune"
-            className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
+          <label className="block text-sm font-medium mb-1.5">
+            District {requiresDistrict && <span className="text-destructive">*</span>}
+          </label>
+          {supportsDistrictSelect ? (
+            <div className="relative">
+              <select
+                value={data.district || ''}
+                onChange={e => onChange({ ...data, district: e.target.value, municipalityName: '', orgName: data.orgType === 'municipality' ? '' : data.orgName })}
+                className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+                disabled={!selectedState}
+              >
+                <option value="">{selectedState ? 'Select District' : 'Select State First'}</option>
+                {districtOptions.map(districtName => <option key={districtName} value={districtName}>{districtName}</option>)}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={data.district || ''}
+              onChange={e => onChange({ ...data, district: e.target.value, municipalityName: '' })}
+              placeholder={selectedState ? 'Enter District Name' : 'Select State First'}
+              disabled={!selectedState}
+              className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+            />
+          )}
+          {!supportsDistrictSelect && selectedState ? (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              District registry for this state is not seeded yet. Enter the district manually until the LGD master is connected.
+            </p>
+          ) : null}
         </div>
+        {requiresMunicipality ? (
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Municipality / ULB Name <span className="text-destructive">*</span></label>
+            {supportsMunicipalitySelect ? (
+              <div className="relative">
+                <select
+                  value={data.municipalityName || ''}
+                  onChange={e => onChange({ ...data, municipalityName: e.target.value, orgName: e.target.value || data.orgName })}
+                  className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+                  disabled={!selectedDistrict}
+                >
+                  <option value="">{selectedDistrict ? 'Select Municipality / ULB' : 'Select District First'}</option>
+                  {municipalityOptions.map(municipality => <option key={municipality} value={municipality}>{municipality}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              </div>
+            ) : (
+              <input
+                type="text"
+                value={data.municipalityName || ''}
+                onChange={e => onChange({ ...data, municipalityName: e.target.value, orgName: e.target.value || data.orgName })}
+                placeholder={selectedDistrict ? 'Enter Municipality / ULB Name' : 'Select District First'}
+                disabled={!selectedDistrict}
+                className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              />
+            )}
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Individual municipalities can onboard directly under their district, similar to BBPS biller hierarchy registration.
+            </p>
+          </div>
+        ) : null}
+        {data.orgType === 'district-office' ? (
+          <div>
+            <label className="block text-sm font-medium mb-1.5">District Office Name</label>
+            <input
+              type="text"
+              value={data.officeName || ''}
+              onChange={e => onChange({ ...data, officeName: e.target.value })}
+              placeholder="e.g. District Collectorate, Pune"
+              className="w-full px-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </div>
+        ) : null}
         <div>
           <label className="block text-sm font-medium mb-1.5">Official Website URL</label>
           <div className="relative">
@@ -227,6 +382,9 @@ function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) =>
             Your organization will be verified by the ServiceFormAI OS team within 1–2 business days using NIC/MeitY records. 
             You'll receive an email once approved to proceed with service configuration.
           </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            Hierarchy captured: State -&gt; District -&gt; Municipality or District Office, aligned to BBPS-style onboarding flows and ready for LGD-backed normalization.
+          </p>
         </div>
       </div>
     </div>
@@ -235,7 +393,6 @@ function StepOrganization({ data, onChange }: { data: any; onChange: (d: any) =>
 
 // ─── Step 2: Admin Setup ─────────────────────────────────────────────────────
 function StepAdminSetup({ data, onChange }: { data: any; onChange: (d: any) => void }) {
-  const [showPassword, setShowPassword] = useState(false);
   const [admins, setAdmins] = useState(data.admins || [{ name: '', email: '', mobile: '', role: 'dept-admin' }]);
 
   const updateAdmin = (idx: number, field: string, value: string) => {
@@ -354,57 +511,9 @@ function StepAdminSetup({ data, onChange }: { data: any; onChange: (d: any) => v
         ))}
       </div>
 
-      {/* Password setup */}
-      <div className="p-5 border border-border rounded-xl bg-card space-y-4">
-        <h3 className="text-base font-semibold">Initial Password</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Set Password <span className="text-destructive">*</span></label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={data.password || ''}
-                onChange={e => onChange({ ...data, password: e.target.value })}
-                placeholder="Min 12 chars, 1 uppercase, 1 number, 1 symbol"
-                className="w-full pl-10 pr-10 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5">Confirm Password <span className="text-destructive">*</span></label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="password"
-                value={data.confirmPassword || ''}
-                onChange={e => onChange({ ...data, confirmPassword: e.target.value })}
-                placeholder="Re-enter password"
-                className="w-full pl-10 pr-4 py-2.5 border border-border rounded-lg bg-input text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {[
-            { label: '12+ characters', ok: (data.password || '').length >= 12 },
-            { label: 'Uppercase letter', ok: /[A-Z]/.test(data.password || '') },
-            { label: 'Number', ok: /\d/.test(data.password || '') },
-            { label: 'Special character', ok: /[^A-Za-z0-9]/.test(data.password || '') },
-          ].map(req => (
-            <div key={req.label} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${req.ok ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}>
-              {req.ok ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-              {req.label}
-            </div>
-          ))}
-        </div>
+      <div className="p-4 border border-primary/20 bg-primary/5 rounded-lg">
+        <p className="text-sm font-medium">Staff access uses the government identity provider.</p>
+        <p className="text-sm text-muted-foreground mt-1">After the organization is verified, the nominated administrator links their verified work identity. No local password is created.</p>
       </div>
 
       {/* 2FA */}
@@ -737,13 +846,14 @@ function StepBranding({ data, onChange }: { data: any; onChange: (d: any) => voi
 }
 
 // ─── Step 5: Go Live ─────────────────────────────────────────────────────────
-function StepGoLive({ data }: { data: any }) {
-  const tenantId = `SFAI-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+function StepGoLive({ data, result }: { data: any; result: TenantOnboardingResponse | null }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
+    if (!result?.tenantId) return;
+    await navigator.clipboard.writeText(result.tenantId);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -753,8 +863,8 @@ function StepGoLive({ data }: { data: any }) {
           <CheckCircle className="w-10 h-10 text-success" />
         </div>
         <h2 className="text-2xl font-bold mb-2">Registration Submitted!</h2>
-        <p className="text-muted-foreground max-w-md mx-auto">
-          Your tenant onboarding request has been submitted. Here's everything you need to know about what happens next.
+          <p className="text-muted-foreground max-w-md mx-auto">
+          Your organization is recorded as pending verification. The tenant portal and staff access will be enabled after approval.
         </p>
       </div>
 
@@ -763,7 +873,7 @@ function StepGoLive({ data }: { data: any }) {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your Tenant ID</p>
-            <p className="text-2xl font-mono font-bold text-primary mt-1">{tenantId}</p>
+            <p className="text-2xl font-mono font-bold text-primary mt-1">{result?.tenantId || 'Pending response'}</p>
           </div>
           <button
             onClick={handleCopy}
@@ -782,15 +892,15 @@ function StepGoLive({ data }: { data: any }) {
         <div className="space-y-3">
           {[
             {
-              step: '1', label: 'Email Verification', desc: 'Check your inbox for a verification link sent to the admin email.',
-              status: 'action', time: 'Right now'
+                step: '1', label: 'Identity verification', desc: 'The nominated administrator will be linked to the tenant after organization approval.',
+                status: 'pending', time: 'After review'
             },
             {
               step: '2', label: 'Organization Verification', desc: 'Our team verifies your organization via NIC / MeitY records and uploaded documents.',
               status: 'pending', time: '1–2 business days'
             },
             {
-              step: '3', label: 'Tenant Provisioning', desc: 'Your dedicated environment, subdomain, and database namespace are provisioned.',
+              step: '3', label: 'Tenant activation', desc: 'The tenant remains inactive until an authorized reviewer completes provisioning.',
               status: 'pending', time: 'Within 4 hours of approval'
             },
             {
@@ -834,10 +944,14 @@ function StepGoLive({ data }: { data: any }) {
       <div className="p-5 border border-border rounded-xl bg-card space-y-3">
         <h3 className="text-sm font-semibold">Registration Summary</h3>
         {[
+          { label: 'Onboarding Scope', value: data.org?.orgType === 'municipality' ? 'Individual Municipality' : data.org?.orgType === 'district-office' ? 'Individual District Office' : 'Department / Other' },
           { label: 'Organization', value: data.org?.orgName || 'N/A' },
+          { label: 'District Office', value: data.org?.orgType === 'district-office' ? (data.org?.officeName || 'N/A') : 'N/A' },
           { label: 'State', value: data.org?.state || 'N/A' },
+          { label: 'District', value: data.org?.district || 'N/A' },
+          { label: 'Municipality / ULB', value: data.org?.orgType === 'municipality' ? (data.org?.municipalityName || 'N/A') : 'N/A' },
           { label: 'Services Selected', value: `${(data.services?.selectedServices || []).length} services` },
-          { label: 'Portal URL', value: data.branding?.subdomain ? `${data.branding.subdomain}.serviceformai.gov.in` : 'To be configured' },
+          { label: 'Requested portal address', value: result?.subdomain ? `${result.subdomain}.serviceformai.gov.in` : 'To be configured' },
           { label: 'Admin(s)', value: `${(data.admin?.admins || []).length} admin(s) configured` },
         ].map(item => (
           <div key={item.label} className="flex items-center justify-between text-sm">
@@ -849,9 +963,9 @@ function StepGoLive({ data }: { data: any }) {
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3">
-        <button className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-primary text-primary-foreground rounded-xl font-medium hover:bg-primary/90 transition-colors">
+        <button disabled className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-muted text-muted-foreground rounded-xl font-medium cursor-not-allowed" title="Available after tenant approval">
           <ExternalLink className="w-4 h-4" />
-          Access Tenant Dashboard
+          Tenant access pending approval
         </button>
         <button className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-muted text-foreground rounded-xl font-medium hover:bg-muted/80 transition-colors">
           <RefreshCw className="w-4 h-4" />
@@ -874,6 +988,7 @@ function StepGoLive({ data }: { data: any }) {
 export default function TenantOnboarding() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+    const [onboardingResult, setOnboardingResult] = useState<TenantOnboardingResponse | null>(null);
   const [orgData, setOrgData] = useState<any>({});
   const [adminData, setAdminData] = useState<any>({ twoFAMethod: 'OTP via Mobile' });
   const [servicesData, setServicesData] = useState<any>({ selectedServices: ['birth-cert', 'income-cert', 'caste-cert', 'scholarship'], integrations: ['digilocker', 'aadhaar-otp', 'sms'] });
@@ -887,7 +1002,25 @@ export default function TenantOnboarding() {
   };
 
   const canProceed = () => {
-    if (step === 1) return orgData.orgType && orgData.orgName && orgData.state;
+    if (step === 1) {
+      const requiresDistrict = orgData.orgType === 'district-office' || orgData.orgType === 'municipality' || orgData.orgType === 'panchayat';
+      const requiresMunicipality = orgData.orgType === 'municipality';
+      const currentDistrictOptions = orgData.state ? Object.keys(GOVERNMENT_HIERARCHY[orgData.state] || {}) : [];
+      const currentMunicipalityOptions = orgData.state && orgData.district
+        ? GOVERNMENT_HIERARCHY[orgData.state]?.[orgData.district] || []
+        : [];
+      const districtIsValid = !currentDistrictOptions.length || currentDistrictOptions.includes(orgData.district);
+      const municipalityIsValid = !currentMunicipalityOptions.length || currentMunicipalityOptions.includes(orgData.municipalityName);
+      return Boolean(
+        orgData.orgType &&
+        orgData.orgName &&
+        orgData.state &&
+        (!requiresDistrict || orgData.district) &&
+        (!requiresMunicipality || orgData.municipalityName) &&
+        districtIsValid &&
+        municipalityIsValid
+      );
+    }
     if (step === 2) return adminData.admins?.[0]?.name && adminData.admins?.[0]?.email && adminData.admins?.[0]?.mobile;
     if (step === 3) return (servicesData.selectedServices || []).length > 0;
     if (step === 4) return brandingData.subdomain?.length >= 3;
@@ -905,16 +1038,21 @@ export default function TenantOnboarding() {
       }
       setSubmitting(true);
       try {
-        await authService.registerTenant({
-          email: admin.email as string,
-          password: admin.password || 'ChangeMe@123',
-          firstName: (admin.name as string).split(' ')[0] ?? admin.name,
-          lastName: (admin.name as string).split(' ').slice(1).join(' ') || undefined,
-          tenantId: brandingData.subdomain as string,
-          role: 'admin',
+        const result = await authService.submitTenantOnboarding({
           orgName: orgData.orgName as string,
-        } as any);
-        toast.success('Registration submitted!');
+          orgType: orgData.orgType,
+          state: orgData.state,
+          district: orgData.district,
+          municipalityName: orgData.municipalityName,
+          officeName: orgData.officeName,
+          subdomain: brandingData.subdomain as string,
+          adminEmail: admin.email as string,
+          adminName: admin.name as string,
+          adminMobile: String(admin.mobile).replace(/\D/g, '').slice(-10),
+          requestedServices: servicesData.selectedServices || [],
+        });
+        setOnboardingResult(result);
+        toast.success('Onboarding request submitted');
         setStep(5);
       } catch (err: any) {
         toast.error(err?.message ?? 'Registration failed. Please try again.');
@@ -954,7 +1092,7 @@ export default function TenantOnboarding() {
           {step === 2 && <StepAdminSetup data={adminData} onChange={setAdminData} />}
           {step === 3 && <StepServices data={servicesData} onChange={setServicesData} />}
           {step === 4 && <StepBranding data={brandingData} onChange={setBrandingData} />}
-          {step === 5 && <StepGoLive data={allData} />}
+          {step === 5 && <StepGoLive data={allData} result={onboardingResult} />}
         </div>
 
         {/* Navigation */}

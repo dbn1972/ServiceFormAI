@@ -103,12 +103,12 @@ describe('Tenant integration — RBAC', () => {
       .expect(HttpStatus.FORBIDDEN);
   });
 
-  it('returns 403 when consumer role tries to list tenants', async () => {
+  it('returns 401 when citizen credentials try to list tenants', async () => {
     const token = signTestJwt({ role: 'consumer' });
     await request(app.getHttpServer())
       .get('/platform/tenants')
       .set('Authorization', `Bearer ${token}`)
-      .expect(HttpStatus.FORBIDDEN);
+      .expect(HttpStatus.UNAUTHORIZED);
   });
 });
 

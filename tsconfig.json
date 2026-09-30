@@ -32,7 +32,11 @@
     /* Paths */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@serviceformai/validation-engine": ["./packages/validation-engine/src/index.ts"],
+      "@serviceformai/form-engine-core": ["./packages/form-engine-core/src/index.ts"],
+      "@serviceformai/form-engine-react": ["./packages/form-engine-react/src/index.ts"],
+      "@serviceformai/service-manifest": ["./packages/service-manifest/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],

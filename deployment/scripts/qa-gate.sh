@@ -19,7 +19,7 @@ set -euo pipefail
 RED='\033[0;31m' GREEN='\033[0;32m' YELLOW='\033[1;33m' BLUE='\033[0;34m' BOLD='\033[1m' NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 SKIP_E2E=false
 WRITE_REPORT=false
@@ -28,6 +28,15 @@ BLOCKING_FAILURES=0
 WARNINGS=0
 declare -a GATE_RESULTS=()
 
+json_escape() {
+  local value="$1"
+  value=${value//\\/\\\\}
+  value=${value//"/\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  printf '%s' "$value"
+}
 info()    { echo -e "${BLUE}[INFO]${NC}  $1"; }
 ok()      { echo -e "${GREEN}[PASS]${NC}  $1"; GATE_RESULTS+=("{\"gate\":\"$1\",\"status\":\"pass\"}"); }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $1"; GATE_RESULTS+=("{\"gate\":\"$1\",\"status\":\"warn\"}"); ((WARNINGS++)) || true; }
@@ -39,7 +48,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-e2e)  SKIP_E2E=true; shift ;;
     --report)    WRITE_REPORT=true; shift ;;
-    --env)       ENV_LABEL="$2"; shift 2 ;;
+    --env)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "--env requires a non-empty value" >&2
+        exit 1
+      fi
+      ENV_LABEL="$2"
+      shift 2
+      ;;
     --help|-h)   echo "Usage: $0 [--skip-e2e] [--report] [--env ENV]"; exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -51,6 +67,27 @@ echo -e "${BOLD}  ServiceFormAI OS — Release Gate (Volume 12 §13)${NC}"
 echo "  Environment: $ENV_LABEL"
 echo "  Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "============================================================"
+
+# ── Gate 0: Production builds ───────────────────────────────────────────────
+section "Gate 0 — Production Builds"
+cd "$PROJECT_ROOT"
+if [[ -n "${VITE_API_URL:-}" ]]; then
+  ok "VITE_API_URL is configured"
+else
+  fail "VITE_API_URL is missing — production frontend API calls are disabled"
+fi
+
+if pnpm run build >/dev/null 2>&1; then
+  ok "Frontend production build passed"
+else
+  fail "Frontend production build failed"
+fi
+
+if pnpm --dir "$PROJECT_ROOT/backend" run build >/dev/null 2>&1; then
+  ok "Backend production build passed"
+else
+  fail "Backend production build failed"
+fi
 
 # ── Gate 1: TypeScript — 0 errors (§14) ──────────────────────────────────────
 section "Gate 1 — TypeScript (Frontend + Backend)"
@@ -75,7 +112,7 @@ section "Gate 2 — ESLint (Frontend)"
 if npx eslint . --ext ts,tsx --max-warnings 0 2>/dev/null; then
   ok "ESLint — 0 warnings or errors"
 else
-  warn "ESLint warnings found — review before release"
+  fail "ESLint errors or warnings found — release blocked"
 fi
 
 # ── Gate 3: Vitest Unit / Contract / Schema Tests (§12) ───────────────────────
@@ -91,10 +128,10 @@ fi
 
 # ── Gate 4: Vitest Coverage thresholds (§12.1) ───────────────────────────────
 section "Gate 4 — Test Coverage (80% threshold)"
-if npx vitest run --coverage 2>/dev/null | grep -q "Coverage"; then
+if npx vitest run --coverage >/dev/null 2>&1; then
   ok "Test coverage threshold met (≥80%)"
 else
-  warn "Coverage data unavailable — run: npm run test:coverage"
+  fail "Test coverage threshold failed"
 fi
 
 # ── Gate 5: E2E Smoke Tests via Playwright (§12 + §13) ───────────────────────
@@ -103,7 +140,7 @@ if [[ "$SKIP_E2E" == "true" ]]; then
   warn "E2E tests skipped (--skip-e2e flag)"
 else
   if [[ ! -f "$PROJECT_ROOT/node_modules/.bin/playwright" ]]; then
-    warn "Playwright not installed — run: npx playwright install"
+    fail "Playwright not installed — run: npx playwright install"
   else
     # Run only the critical smoke specs (auth + responsive) for speed
     if npx playwright test e2e/auth.spec.ts e2e/responsive.spec.ts \
@@ -141,7 +178,7 @@ if command -v jest >/dev/null 2>&1 || npx jest --version >/dev/null 2>&1; then
     fail "Backend Jest tests failed"
   fi
 else
-  warn "Jest not installed in backend — skipping (add jest to devDependencies)"
+  fail "Jest not installed in backend"
 fi
 cd "$PROJECT_ROOT"
 
@@ -158,7 +195,7 @@ else
       fail "Responsive smoke failed — layout issues on mobile or desktop"
     fi
   else
-    warn "Playwright unavailable — responsive smoke skipped"
+    fail "Playwright unavailable — responsive smoke cannot run"
   fi
 fi
 
@@ -171,7 +208,11 @@ if [[ "$SKIP_E2E" == "false" ]] && [[ -f "$PROJECT_ROOT/node_modules/.bin/playwr
     fail "Accessibility blockers detected — zero accessibility blocking defects required"
   fi
 else
-  warn "Accessibility tests skipped"
+  if [[ "$SKIP_E2E" == "true" ]]; then
+    warn "Accessibility tests skipped (--skip-e2e)"
+  else
+    fail "Accessibility tests unavailable"
+  fi
 fi
 
 # ── Gate 11: Dark mode regression (§10 + §13) ────────────────────────────────
@@ -180,10 +221,14 @@ if [[ "$SKIP_E2E" == "false" ]] && [[ -f "$PROJECT_ROOT/node_modules/.bin/playwr
   if npx playwright test e2e/dark-mode.spec.ts --project="Dark Mode" 2>/dev/null; then
     ok "Dark mode regression passed"
   else
-    warn "Dark mode issues detected — review before release"
+    fail "Dark mode regression failed"
   fi
 else
-  warn "Dark mode tests skipped"
+  if [[ "$SKIP_E2E" == "true" ]]; then
+    warn "Dark mode tests skipped (--skip-e2e)"
+  else
+    fail "Dark mode tests unavailable"
+  fi
 fi
 
 # ── Gate 12: Security — no default secrets in .env ────────────────────────────
@@ -200,12 +245,12 @@ else
 fi
 
 # ── Gate 13: Deployment validation (§13) ─────────────────────────────────────
-section "Gate 13 — Deployment / Install Validation"
+section "Gate 13 — Deployment Configuration / Readiness"
 if [[ -f "$PROJECT_ROOT/deployment/scripts/validate.sh" ]]; then
-  if bash "$PROJECT_ROOT/deployment/scripts/validate.sh" --pre 2>/dev/null; then
-    ok "Pre-install validation passed"
+  if bash "$PROJECT_ROOT/deployment/scripts/validate.sh" --config 2>/dev/null; then
+    ok "Static deployment and readiness validation passed"
   else
-    warn "Pre-install validation has warnings — review deployment readiness"
+    fail "Static deployment and readiness validation failed"
   fi
 else
   warn "validate.sh not found — deployment validation skipped"
@@ -221,11 +266,13 @@ echo "  Warnings:          $WARNINGS"
 echo "============================================================"
 
 if [[ "$WRITE_REPORT" == "true" ]]; then
-  local results_json; results_json=$(IFS=,; echo "[${GATE_RESULTS[*]}]")
+  product_json=$(json_escape "ServiceFormAI OS")
+  env_json=$(json_escape "$ENV_LABEL")
+  results_json=$(IFS=,; echo "[${GATE_RESULTS[*]}]")
   cat > "$PROJECT_ROOT/qa-gate-report.json" <<EOF
 {
-  "product": "ServiceFormAI OS",
-  "env": "$ENV_LABEL",
+  "product": "$product_json",
+  "env": "$env_json",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "blocking_failures": $BLOCKING_FAILURES,
   "warnings": $WARNINGS,

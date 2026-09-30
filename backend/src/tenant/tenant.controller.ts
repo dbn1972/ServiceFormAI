@@ -12,14 +12,14 @@ import {
 } from '@nestjs/common';
 import { TenantService } from './tenant.service';
 import { CreateTenantDto, UpdateTenantDto, SuspendTenantDto } from './dto/tenant.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { TenantId } from '../common/decorators/tenant-id.decorator';
 
 @Controller('platform/tenants')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(TenantStaffAuthGuard, RolesGuard)
 export class TenantController {
   constructor(private readonly tenantService: TenantService) {}
 

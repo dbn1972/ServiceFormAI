@@ -1,28 +1,38 @@
 import { Mail, Phone, Lock, Eye, EyeOff, Fingerprint, Smartphone, Shield, Users, Check, AlertCircle, Loader2, Info, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
-import { useState, FormEvent, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, FormEvent, useEffect, useRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { validators, formatters } from '../utils/validation';
 import { toast } from 'sonner';
 import PublicHeader from '../components/PublicHeader';
 import PublicFooter from '../components/PublicFooter';
+import { isKeycloakConfigured, startKeycloakLogin } from '../services/keycloak-oidc';
+import { authService } from '../services/api/index';
+import {
+  clearPendingOnboardingIdentity,
+  isOnboardingCompletedForUser,
+  normalizeOnboardingIdentity,
+  setPendingOnboardingIdentity,
+} from '../utils/onboarding';
 
 type LoginMode = 'password' | 'otp';
 type LoginMethod = 'mobile' | 'email';
-type OTPDelivery = 'sms' | 'whatsapp';
 
 export default function Login() {
-  const { login } = useApp();
+  const { login, loginWithOtp } = useApp();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [showPassword, setShowPassword] = useState(false);
   const [loginMode, setLoginMode] = useState<LoginMode>('password');
   const [loginMethod, setLoginMethod] = useState<LoginMethod>('mobile');
-  const [otpDelivery, setOTPDelivery] = useState<OTPDelivery>('sms');
   const [isLoading, setIsLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [showMoreSSO, setShowMoreSSO] = useState(false);
   const [hasBiometric, setHasBiometric] = useState(false);
   const [returningUser, setReturningUser] = useState<{ name: string; identifier: string } | null>(null);
+  const otpRequestSequence = useRef(0);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -36,6 +46,24 @@ export default function Login() {
     password: '',
     otp: ''
   });
+
+  const getPostLoginRoute = (authenticatedUser: { id?: string; email?: string; mobile?: string } | null) => {
+    const normalizedIdentifier = normalizeOnboardingIdentity(formData.identifier);
+    const onboardingCompleted = isOnboardingCompletedForUser(authenticatedUser) || false;
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+
+    if (!onboardingCompleted) {
+      setPendingOnboardingIdentity(normalizedIdentifier);
+    } else {
+      clearPendingOnboardingIdentity();
+    }
+
+    if (!onboardingCompleted) {
+      return '/onboarding/citizen';
+    }
+
+    return from || '/dashboard';
+  };
 
   // Check for returning user and biometric support on mount
   useEffect(() => {
@@ -70,7 +98,10 @@ export default function Login() {
       formattedValue = formatters.mobile(value);
     }
     
-    setFormData(prev => ({ ...prev, identifier: formattedValue }));
+    setOtpSent(false);
+    setOtpChallengeId(null);
+    otpRequestSequence.current += 1;
+    setFormData(prev => ({ ...prev, identifier: formattedValue, otp: '' }));
     
     // Clear error when user types
     if (errors.identifier) {
@@ -83,18 +114,15 @@ export default function Login() {
     let isValid = true;
 
     // Validate identifier
-    if (loginMethod === 'mobile') {
-      const result = validators.mobile(formData.identifier);
-      if (result !== true) {
-        newErrors.identifier = result;
-        isValid = false;
-      }
-    } else {
-      const result = validators.email(formData.identifier);
-      if (result !== true) {
-        newErrors.identifier = result;
-        isValid = false;
-      }
+    const identifierResult = loginMethod === 'mobile'
+      ? validators.mobile(formData.identifier)
+      : validators.email(formData.identifier);
+    if (loginMode === 'otp' && loginMethod !== 'mobile') {
+      newErrors.identifier = 'OTP login requires a mobile number';
+      isValid = false;
+    } else if (identifierResult !== true) {
+      newErrors.identifier = String(identifierResult);
+      isValid = false;
     }
 
     // Validate based on login mode
@@ -139,23 +167,27 @@ export default function Login() {
     }
 
     setIsLoading(true);
+    const requestSequence = ++otpRequestSequence.current;
+    const mobile = `+91${formData.identifier.replace(/\D/g, '').slice(-10)}`;
+    setOtpChallengeId(null);
+    setFormData(prev => ({ ...prev, otp: '' }));
 
     try {
-      // Simulate OTP send
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      const response = await authService.issueCitizenOtp(mobile);
+      if (requestSequence !== otpRequestSequence.current) return;
+      setOtpChallengeId(response.challengeId);
       setOtpSent(true);
-      setOtpCountdown(30);
+      setOtpCountdown(response.retryAfterSeconds);
       
-      const deliveryMethod = otpDelivery === 'whatsapp' ? 'WhatsApp' : 'SMS';
-      const maskedIdentifier = loginMethod === 'mobile' 
-        ? `******${formData.identifier.slice(-4)}`
-        : `${formData.identifier.slice(0, 3)}***@${formData.identifier.split('@')[1]}`;
+      const maskedIdentifier = `******${formData.identifier.slice(-4)}`;
       
-      toast.success(`OTP sent via ${deliveryMethod}`, {
-        description: `Check your ${loginMethod === 'mobile' ? 'phone' : 'email'} (${maskedIdentifier})`
+      toast.success('OTP sent via SMS', {
+        description: `Check your phone (${maskedIdentifier})`
       });
     } catch (error) {
+      if (requestSequence !== otpRequestSequence.current) return;
+      setOtpSent(false);
+      setOtpChallengeId(null);
       toast.error('Failed to send OTP', {
         description: 'Please check your connection and try again.'
       });
@@ -175,28 +207,22 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      let success = false;
+      let authenticatedUser = null;
       
       if (loginMode === 'password') {
-        success = await login(formData.identifier, formData.password, loginMethod);
+        authenticatedUser = await login(formData.identifier, formData.password, loginMethod);
       } else {
-        // OTP login simulation
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        success = formData.otp === '123456'; // Mock OTP validation
-        
-        if (!success) {
+        if (!otpChallengeId) {
           toast.error('Invalid OTP', {
-            description: 'The OTP you entered is incorrect. Please check and try again.'
+            description: 'Request a new OTP and try again.'
           });
-          setIsLoading(false);
           return;
         }
-        
-        // Simulate login success
-        await login(formData.identifier, 'otp-verified', loginMethod);
+        const mobile = `+91${formData.identifier.replace(/\D/g, '').slice(-10)}`;
+        authenticatedUser = await loginWithOtp(otpChallengeId, mobile, formData.otp);
       }
       
-      if (success) {
+      if (authenticatedUser) {
         // Save for returning user experience
         localStorage.setItem('lastLoginIdentifier', formData.identifier);
         localStorage.setItem('lastLoginName', 'Citizen User'); // This would come from the API
@@ -204,6 +230,8 @@ export default function Login() {
         toast.success('Welcome back!', {
           description: 'You have successfully logged in.'
         });
+
+        navigate(getPostLoginRoute(authenticatedUser));
       } else {
         toast.error('Invalid credentials', {
           description: loginMode === 'password' 
@@ -212,8 +240,10 @@ export default function Login() {
         });
       }
     } catch (error) {
-      toast.error('Login failed', {
-        description: 'Unable to connect to the server. Please check your internet connection.'
+      toast.error(loginMode === 'otp' ? 'OTP verification failed' : 'Login failed', {
+        description: error instanceof Error
+          ? error.message
+          : 'Unable to connect to the server. Please check your internet connection.'
       });
     } finally {
       setIsLoading(false);
@@ -226,10 +256,20 @@ export default function Login() {
     });
   };
 
-  const handleDigiLockerLogin = async () => {
-    toast.info('DigiLocker login coming soon', {
-      description: 'DigiLocker integration is not yet available. Please use your mobile number or email to login.'
-    });
+  const handleKeycloakLogin = async () => {
+    if (!isKeycloakConfigured()) {
+      toast.info('Staff sign-in is not configured', {
+        description: 'This environment has not configured the tenant staff identity provider.'
+      });
+      return;
+    }
+    try {
+      await startKeycloakLogin();
+    } catch (error) {
+      toast.error('Unable to start staff sign-in', {
+        description: error instanceof Error ? error.message : 'Please try again.'
+      });
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -323,6 +363,7 @@ export default function Login() {
                 onClick={() => {
                   setLoginMode('password');
                   setOtpSent(false);
+                  setOtpChallengeId(null);
                   setFormData(prev => ({ ...prev, otp: '' }));
                 }}
                 className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all ${ 
@@ -341,6 +382,9 @@ export default function Login() {
                 aria-controls="otp-login-panel"
                 onClick={() => {
                   setLoginMode('otp');
+                  setLoginMethod('mobile');
+                  setOtpSent(false);
+                  setOtpChallengeId(null);
                   setFormData(prev => ({ ...prev, password: '' }));
                 }}
                 className={`flex-1 py-2.5 px-4 rounded-md text-sm font-medium transition-all ${
@@ -355,7 +399,7 @@ export default function Login() {
             </div>
 
             {/* Login Method Toggle - Mobile vs Email */}
-            <div className="flex gap-2 mb-6 p-1 bg-muted/50 rounded-lg" role="tablist" aria-label="Identifier type selection">
+            {loginMode === 'password' && <div className="flex gap-2 mb-6 p-1 bg-muted/50 rounded-lg" role="group" aria-label="Identifier type selection">
               <button
                 type="button"
                 role="tab"
@@ -394,7 +438,7 @@ export default function Login() {
                 <Mail className="w-3.5 h-3.5 inline-block mr-1.5" />
                 Email
               </button>
-            </div>
+            </div>}
 
             <form className="space-y-5" onSubmit={handleSubmit}>
               {/* Mobile/Email Input */}
@@ -532,44 +576,10 @@ export default function Login() {
                 <>
                   {!otpSent ? (
                     <>
-                      {/* OTP Delivery Method */}
                       <div>
-                        <label className="block text-sm font-medium mb-2">
-                          Receive OTP via
-                        </label>
-                        <div className="flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setOTPDelivery('sms')}
-                            className={`flex-1 py-3 px-4 rounded-lg border-2 font-medium transition-all text-sm ${
-                              otpDelivery === 'sms'
-                                ? 'border-primary bg-primary/5 text-primary'
-                                : 'border-border hover:border-border/60'
-                            }`}
-                            aria-pressed={otpDelivery === 'sms'}
-                          >
-                            <MessageSquare className="w-4 h-4 inline-block mr-2" aria-hidden="true" />
-                            SMS
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setOTPDelivery('whatsapp')}
-                            className={`flex-1 py-3 px-4 rounded-lg border-2 font-medium transition-all text-sm ${
-                              otpDelivery === 'whatsapp'
-                                ? 'border-primary bg-primary/5 text-primary'
-                                : 'border-border hover:border-border/60'
-                            }`}
-                            aria-pressed={otpDelivery === 'whatsapp'}
-                          >
-                            <svg className="w-4 h-4 inline-block mr-2" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                            </svg>
-                            WhatsApp
-                          </button>
-                        </div>
                         <p className="text-xs text-muted-foreground mt-2 flex items-start gap-1">
                           <Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />
-                          <span>OTP is valid for 10 minutes. Standard SMS/data charges may apply.</span>
+                          <span>OTP is sent by SMS and is valid for 5 minutes. Standard SMS charges may apply.</span>
                         </p>
                       </div>
 
@@ -714,16 +724,15 @@ export default function Login() {
 
             {/* Primary SSO Options */}
             <div className="space-y-3">
-              {/* DigiLocker - Primary for India */}
               <button
                 type="button"
-                onClick={handleDigiLockerLogin}
+                onClick={handleKeycloakLogin}
                 className="w-full py-3.5 border-2 border-border rounded-lg font-medium hover:bg-accent transition-all flex items-center justify-center gap-2 min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring group"
-                aria-label="Login with DigiLocker - Verify with government issued documents"
+                aria-label="Sign in as tenant staff through the government identity provider"
               >
-                <Fingerprint className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" aria-hidden="true" />
-                <span>DigiLocker Login</span>
-                <span className="ml-auto mr-2 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">Coming soon</span>
+                <Lock className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" aria-hidden="true" />
+                <span>Tenant Staff Sign In</span>
+                <span className="ml-auto mr-2 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">Government SSO</span>
               </button>
 
               {/* Aadhaar OTP - Also primary for India */}

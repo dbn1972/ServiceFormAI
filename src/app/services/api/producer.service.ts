@@ -24,16 +24,87 @@ export class ProducerService {
   // Service Management
   // ============================================================================
 
+  async getCertifiedServiceTemplates(): Promise<Array<{
+    id: string;
+    version: number;
+    certificationStatus: 'certified';
+    certifiedAt: string;
+    certificationAuthority: string;
+    certificationScope: string;
+    name: string;
+    category: string;
+    description: string;
+    slaDays: number;
+    formSchema: {
+      fields: Array<{
+        id: string;
+        name: string;
+        type: string;
+        label: string;
+        required?: boolean;
+        placeholder?: string;
+        helpText?: string;
+        options?: Array<{ label: string; value: string }>;
+        validation?: Record<string, unknown>;
+      }>;
+      sections?: Array<{ id: string; title: string; fieldIds: string[] }>;
+    };
+    requiredDocuments: Array<{
+      name: string;
+      required: boolean;
+      description?: string;
+      acceptedSources?: string[];
+      digilockerTypes?: string[];
+    }>;
+    workflowConfig: {
+      stages: Array<Record<string, unknown>>;
+    };
+  }>> {
+    return apiService.get(API_ENDPOINTS.producer.serviceTemplates);
+  }
+
+  async cloneCertifiedServiceTemplate(templateId: string, data: CreateServiceDto): Promise<TenantService> {
+    return apiService.post<TenantService>(
+      API_ENDPOINTS.producer.cloneServiceTemplate(templateId),
+      data,
+    );
+  }
+
+  async simulateService(id: string): Promise<{
+    serviceId: string;
+    passed: boolean;
+    checks: Array<{ id: string; passed: boolean; details?: unknown }>;
+  }> {
+    return apiService.post(API_ENDPOINTS.producer.simulateService(id));
+  }
+
   /**
    * Get all services for the tenant
    */
   async getServices(
     pagination?: PaginationParams
   ): Promise<PaginatedResponse<TenantService>> {
-    return apiService.get<PaginatedResponse<TenantService>>(
+    const response = await apiService.get<PaginatedResponse<any>>(
       API_ENDPOINTS.producer.services,
       pagination
     );
+    return {
+      ...response,
+      data: (response.data ?? []).map((service: any) => ({
+        ...service,
+        tenantId: service.tenantId ?? service.tenant_id,
+        serviceScope: service.serviceScope ?? service.service_scope ?? null,
+        formSchema: service.formSchema ?? service.form_schema,
+        workflowConfig: service.workflowConfig ?? service.workflow_config,
+        eligibilityRules: service.eligibilityRules ?? service.eligibility_rules,
+        requiredDocuments: service.requiredDocuments ?? service.required_documents,
+        isPublished: service.isPublished ?? service.published ?? false,
+        slaDays: service.slaDays ?? service.sla_days,
+        publishedAt: service.publishedAt ?? service.published_at,
+        createdAt: service.createdAt ?? service.created_at,
+        updatedAt: service.updatedAt ?? service.updated_at,
+      })),
+    };
   }
 
   /**
@@ -75,10 +146,84 @@ export class ProducerService {
   /**
    * Publish service
    */
-  async publishService(id: string): Promise<TenantService> {
-    return apiService.post<TenantService>(
+  async publishService(id: string): Promise<{
+    id: string;
+    service_id: string;
+    requested_by_id: string;
+    status: 'pending';
+    publicationStatus: 'pending_approval';
+  }> {
+    return apiService.post<{
+      id: string;
+      service_id: string;
+      requested_by_id: string;
+      status: 'pending';
+      publicationStatus: 'pending_approval';
+    }>(
       API_ENDPOINTS.producer.publishService(id)
     );
+  }
+
+  async getPendingPublicationApprovals(): Promise<Array<{
+    id: string;
+    tenant_id: string;
+    service_id: string;
+    requested_by_id: string;
+    status: 'pending';
+    created_at: string;
+    requested_content_hash: string;
+    service: {
+      name: string;
+      category: string;
+      description: string;
+      form_schema: Record<string, unknown>;
+      workflow_config: Record<string, unknown>;
+      manifest: Record<string, unknown>;
+    } | null;
+    simulation: { passed: boolean } | null;
+  }>> {
+    return apiService.get(API_ENDPOINTS.producer.servicePublicationApprovals);
+  }
+
+  async approveServicePublication(id: string): Promise<{
+    serviceId: string;
+    release_id: string;
+    version: number;
+    published: true;
+  }> {
+    return apiService.post(API_ENDPOINTS.producer.approveServicePublication(id));
+  }
+
+  async getRedressQueue(): Promise<{
+    grievances: Array<Record<string, any>>;
+    appeals: Array<Record<string, any>>;
+    feedback: Array<Record<string, any>>;
+  }> {
+    return apiService.get(API_ENDPOINTS.producer.redressQueue);
+  }
+
+  async assignGrievance(id: string, staffUserId: string) {
+    return apiService.post(API_ENDPOINTS.producer.assignGrievance(id), { staffUserId });
+  }
+
+  async resolveGrievance(id: string, resolution: string) {
+    return apiService.patch(API_ENDPOINTS.producer.resolveGrievance(id), { resolution });
+  }
+
+  async assignAppeal(id: string, staffUserId: string) {
+    return apiService.post(API_ENDPOINTS.producer.assignAppeal(id), { staffUserId });
+  }
+
+  async decideAppeal(id: string, decision: 'upheld' | 'remanded', reason: string) {
+    return apiService.patch(API_ENDPOINTS.producer.decideAppeal(id), { decision, reason });
+  }
+
+  async closeCitizenFeedback(id: string, response: string) {
+    return apiService.patch(API_ENDPOINTS.producer.closeFeedback(id), { response });
+  }
+
+  async assignCitizenFeedback(id: string, staffUserId: string) {
+    return apiService.post(API_ENDPOINTS.producer.assignFeedback(id), { staffUserId });
   }
 
   /**
@@ -130,7 +275,10 @@ export class ProducerService {
   ): Promise<Application> {
     return apiService.patch<Application>(
       API_ENDPOINTS.producer.updateApplicationStatus(id),
-      data
+      {
+        ...data,
+        status: data.status === 'APPROVED' ? 'approved' : data.status === 'REJECTED' ? 'rejected' : data.status,
+      }
     );
   }
 
@@ -259,6 +407,7 @@ export class ProducerService {
     primaryColor?: string;
     secondaryColor?: string;
     customDomain?: string;
+    governanceScope?: Record<string, any>;
   }): Promise<any> {
     return apiService.patch(API_ENDPOINTS.producer.tenantSettings, data);
   }

@@ -1,8 +1,10 @@
 import {
   Controller,
+  HttpCode,
   Post,
   Body,
   Get,
+  GoneException,
   Query,
   Req,
   UnauthorizedException,
@@ -22,7 +24,12 @@ import { BootstrapPlatformAdminDto } from './dto/bootstrap-platform-admin.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { TenantStaffAuthGuard } from './guards/tenant-staff-auth.guard';
+import { CitizenOrTenantStaffAuthGuard } from './guards/citizen-or-tenant-staff-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CitizenOtpService } from './citizen-otp.service';
+import { IssueCitizenOtpDto } from './dto/issue-citizen-otp.dto';
+import { VerifyCitizenOtpDto } from './dto/verify-citizen-otp.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -30,11 +37,48 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly authSecurityService: AuthSecurityService,
     private readonly auditService: AuditService,
+    private readonly citizenOtpService: CitizenOtpService,
   ) {}
+
+  @Post('citizen/otp')
+  @HttpCode(202)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async issueCitizenOtp(@Body() dto: IssueCitizenOtpDto, @Req() request: Request) {
+    const data = await this.citizenOtpService.issue(dto.mobile, this.getIpAddress(request));
+    return {
+      success: true,
+      message: 'If the number can receive messages, a code has been sent.',
+      data,
+    };
+  }
+
+  @Post('citizen/otp/verify')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async verifyCitizenOtp(@Body() dto: VerifyCitizenOtpDto, @Req() request: Request) {
+    const result = await this.citizenOtpService.verify(dto.challengeId, dto.mobile, dto.code);
+    void this.auditService.logAuthSuccess({
+      actorId: result.user.id,
+      actorRole: 'consumer',
+      ipAddress: this.getIpAddress(request),
+      method: 'mobile_otp',
+    });
+    return { success: true, data: result };
+  }
+
+  @UseGuards(TenantStaffAuthGuard)
+  @Post('staff/session')
+  async createTenantStaffSession(@CurrentUser() user: any) {
+    if (user.identityProvider !== 'keycloak') {
+      throw new UnauthorizedException('A Keycloak identity is required');
+    }
+    const result = await this.authService.createTenantStaffSessionForKeycloak(user);
+    return { success: true, data: result };
+  }
 
   @Post('register/tenant')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async registerTenant(@Body() dto: RegisterTenantDto, @Req() request: Request) {
+    this.assertLegacyTenantPasswordAuthEnabled();
     const result = await this.authService.registerTenantUser(dto);
     void this.auditService.logRegistration({
       actorId: result.user.id,
@@ -51,6 +95,7 @@ export class AuthController {
   @Post('login/tenant')
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async loginTenant(@Body() dto: LoginTenantDto, @Req() request: Request) {
+    this.assertLegacyTenantPasswordAuthEnabled();
     const loginKey = dto.email.trim().toLowerCase();
     const ipAddress = this.getIpAddress(request);
     await this.authSecurityService.assertLoginAllowed(loginKey, ipAddress);
@@ -88,17 +133,8 @@ export class AuthController {
 
   @Post('register/consumer')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  async registerConsumer(@Body() dto: RegisterConsumerDto, @Req() request: Request) {
-    const result = await this.authService.registerConsumerUser(dto);
-    void this.auditService.logRegistration({
-      actorId: result.user.id,
-      actorRole: 'consumer',
-      ipAddress: this.getIpAddress(request),
-    });
-    return {
-      success: true,
-      data: result,
-    };
+  async registerConsumer(@Body() _dto: RegisterConsumerDto) {
+    throw new GoneException('Citizen accounts are created after mobile OTP verification');
   }
 
   @Post('login/consumer')
@@ -158,7 +194,7 @@ export class AuthController {
     };
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CitizenOrTenantStaffAuthGuard)
   @Get('me')
   async getProfile(@CurrentUser() user: any) {
     return {
@@ -185,6 +221,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     const result = await this.authService.forgotPassword(dto.email, dto.tenantId);
     return {
@@ -201,18 +238,23 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.password);
     return { success: true, message: 'Password reset successfully.' };
   }
 
   private getIpAddress(request: Request) {
-    const forwarded = request.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.length > 0) {
-      return forwarded.split(',')[0].trim();
-    }
-
     return request.ip || request.socket.remoteAddress || 'unknown';
+  }
+
+  private assertLegacyTenantPasswordAuthEnabled(): void {
+    if (
+      process.env.NODE_ENV !== 'test' &&
+      process.env.ALLOW_LEGACY_TENANT_PASSWORD_AUTH !== 'true'
+    ) {
+      throw new GoneException('Tenant staff must authenticate through the configured identity provider');
+    }
   }
 
   // Only callable when BOOTSTRAP_SECRET env is set AND no platform_admin exists yet.

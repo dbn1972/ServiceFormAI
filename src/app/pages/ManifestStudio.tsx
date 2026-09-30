@@ -1,17 +1,80 @@
-import { Plus, Eye, Code, CheckCircle } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, Eye, Code, CheckCircle, ClipboardCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { validateServiceManifest } from '@serviceformai/service-manifest';
 import { producerService } from '../services/api/producer.service';
+import { buildScholarshipManifestPreview } from '../utils/serviceManifest';
+import { useApp } from '../context/AppContext';
+import RedressQueue from './RedressQueue';
+
+type ServiceScope = {
+  jurisdiction_model: 'central' | 'state' | 'district' | 'urban_local_body' | 'rural_local_body' | 'mixed';
+  ministry_code: string;
+  state_lgd_code: string;
+  district_lgd_code: string;
+  municipality_lgd_code: string;
+  panchayat_lgd_code: string;
+};
 
 export default function ManifestStudio() {
+  const { user } = useApp();
   const [name, setName] = useState('State Merit Scholarship 2026');
   const [category, setCategory] = useState('Student Benefit');
   const [description, setDescription] = useState('Financial assistance for eligible students pursuing higher education.');
   const [publishing, setPublishing] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState<Array<{
+    id: string;
+    service_id: string;
+    requested_by_id: string;
+    created_at: string;
+    requested_content_hash: string;
+    service: { name: string; category: string; description: string; form_schema: Record<string, unknown>; workflow_config: Record<string, unknown>; manifest: Record<string, unknown> } | null;
+    simulation: { passed: boolean } | null;
+  }>>([]);
+  const [serviceScope, setServiceScope] = useState<ServiceScope>({
+    jurisdiction_model: 'state',
+    ministry_code: '',
+    state_lgd_code: '',
+    district_lgd_code: '',
+    municipality_lgd_code: '',
+    panchayat_lgd_code: '',
+  });
+  const manifest = buildScholarshipManifestPreview({ name, category, description });
+  const manifestValidation = validateServiceManifest(manifest);
+
+  const loadPendingApprovals = async () => {
+    try {
+      setPendingApprovals(await producerService.getPendingPublicationApprovals());
+    } catch {
+      setPendingApprovals([]);
+    }
+  };
+
+  useEffect(() => {
+    void loadPendingApprovals();
+  }, []);
+
+  const approvePublication = async (serviceId: string) => {
+    try {
+      const release = await producerService.approveServicePublication(serviceId);
+      toast.success(`Release ${release.version} approved and published`);
+      await loadPendingApprovals();
+    } catch (error) {
+      toast.error('Unable to approve publication', {
+        description: error instanceof Error ? error.message : 'The request may belong to another administrator.',
+      });
+    }
+  };
 
   const handlePublish = async () => {
     if (!name || !category) {
       toast.error('Service name and category are required');
+      return;
+    }
+    if (!manifestValidation.valid) {
+      toast.error('Manifest validation failed', {
+        description: manifestValidation.errors[0]?.message || 'Please review the manifest fields.',
+      });
       return;
     }
     setPublishing(true);
@@ -20,10 +83,13 @@ export default function ManifestStudio() {
         name,
         description,
         category,
-        formSchema: { title: name, fields: [] },
+        manifest,
+        formSchema: manifest.service.formSchema as any,
+        workflowConfig: { stages: manifest.workflow.stages },
+        serviceScope,
       });
       await producerService.publishService(created.id);
-      toast.success('Manifest published!', { description: 'Service is now live.' });
+      toast.success('Publication submitted for independent approval');
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to publish manifest');
     } finally {
@@ -38,6 +104,53 @@ export default function ManifestStudio() {
           <h1 className="text-3xl font-bold mb-2">Service Manifest Studio</h1>
           <p className="text-muted-foreground">Create and publish service manifests</p>
         </div>
+
+        {pendingApprovals.length > 0 && (
+          <section className="mb-8 border border-border bg-card rounded-lg p-5" aria-labelledby="publication-approvals-heading">
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardCheck className="w-5 h-5 text-primary" aria-hidden="true" />
+              <h2 id="publication-approvals-heading" className="text-lg font-semibold">Pending Publication Approvals</h2>
+            </div>
+            <div className="divide-y divide-border">
+              {pendingApprovals.map((approval) => (
+                <div key={approval.id} className="py-3 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">{approval.service?.name || `Service ${approval.service_id}`}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {approval.service?.category || 'Service'} · Requested by {approval.requested_by_id} · {new Date(approval.created_at).toLocaleString()}
+                    </p>
+                    <p className={`text-xs mt-1 ${approval.simulation?.passed ? 'text-success' : 'text-destructive'}`}>
+                      Simulation {approval.simulation?.passed ? 'passed' : 'failed or unavailable'}
+                    </p>
+                    <p className="text-xs font-mono text-muted-foreground mt-1">
+                      Content hash: {approval.requested_content_hash.slice(0, 16)}…
+                    </p>
+                    {approval.service && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-primary cursor-pointer">Review form, workflow, and manifest snapshot</summary>
+                        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words bg-muted p-3 rounded text-xs">
+                          {JSON.stringify({ form: approval.service.form_schema, workflow: approval.service.workflow_config, manifest: approval.service.manifest }, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void approvePublication(approval.service_id)}
+                    disabled={approval.requested_by_id === user?.id || !approval.simulation?.passed}
+                    title={approval.requested_by_id === user?.id ? 'A different administrator must approve this request' : undefined}
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
+                  >
+                    <CheckCircle className="w-4 h-4" aria-hidden="true" />
+                    {approval.requested_by_id === user?.id ? 'Await another admin' : 'Approve release'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <RedressQueue />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Builder */}
@@ -82,6 +195,72 @@ export default function ManifestStudio() {
                     rows={3}
                     value={description}
                     onChange={e => setDescription(e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card border border-border rounded-xl p-6">
+              <h3 className="text-lg font-semibold mb-6">Service Scope</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Jurisdiction Model</label>
+                  <select
+                    value={serviceScope.jurisdiction_model}
+                    onChange={e => setServiceScope(prev => ({ ...prev, jurisdiction_model: e.target.value as ServiceScope['jurisdiction_model'] }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
+                  >
+                    <option value="state">State</option>
+                    <option value="central">Central</option>
+                    <option value="district">District</option>
+                    <option value="urban_local_body">Urban Local Body</option>
+                    <option value="rural_local_body">Rural Local Body</option>
+                    <option value="mixed">Mixed</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Ministry Code</label>
+                  <input
+                    type="text"
+                    value={serviceScope.ministry_code}
+                    onChange={e => setServiceScope(prev => ({ ...prev, ministry_code: e.target.value }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">State LGD Code</label>
+                  <input
+                    type="text"
+                    value={serviceScope.state_lgd_code}
+                    onChange={e => setServiceScope(prev => ({ ...prev, state_lgd_code: e.target.value }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">District LGD Code</label>
+                  <input
+                    type="text"
+                    value={serviceScope.district_lgd_code}
+                    onChange={e => setServiceScope(prev => ({ ...prev, district_lgd_code: e.target.value }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Municipality LGD Code</label>
+                  <input
+                    type="text"
+                    value={serviceScope.municipality_lgd_code}
+                    onChange={e => setServiceScope(prev => ({ ...prev, municipality_lgd_code: e.target.value }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Panchayat LGD Code</label>
+                  <input
+                    type="text"
+                    value={serviceScope.panchayat_lgd_code}
+                    onChange={e => setServiceScope(prev => ({ ...prev, panchayat_lgd_code: e.target.value }))}
+                    className="w-full px-4 py-3 bg-input-background border border-border rounded-lg"
                   />
                 </div>
               </div>
@@ -148,11 +327,13 @@ export default function ManifestStudio() {
                 </div>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium">Version</span>
-                  <span className="text-xs text-muted-foreground">1.0.0</span>
+                  <span className="text-xs text-muted-foreground">{manifest.manifestVersion}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Certification</span>
-                  <span className="text-xs text-muted-foreground">Not submitted</span>
+                  <span className="text-sm font-medium">Validation</span>
+                  <span className={`text-xs ${manifestValidation.valid ? 'text-success' : 'text-destructive'}`}>
+                    {manifestValidation.valid ? 'Ready' : `${manifestValidation.errors.length} issue(s)`}
+                  </span>
                 </div>
               </div>
 

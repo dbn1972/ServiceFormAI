@@ -17,7 +17,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, HttpStatus } from '@nestjs/common';
+import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
@@ -29,6 +29,7 @@ import * as bcrypt from 'bcrypt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthSecurityService } from './auth-security.service';
+import { CitizenOtpService } from './citizen-otp.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AuditService } from '../audit/audit.service';
 import { TenantUser } from '../database/entities/tenant-user.entity';
@@ -41,6 +42,7 @@ import {
   signTestJwt,
   signRefreshJwt,
   signExpiredJwt,
+  consumerToken,
   TEST_TENANT_ID,
   TEST_CONSUMER_ID,
   TEST_USER_ID_ADMIN,
@@ -57,18 +59,23 @@ beforeAll(async () => {
 
 // ─── Module factory ──────────────────────────────────────────────────────────
 
-async function createAuthApp(): Promise<{
+async function createAuthApp(useValidation = false): Promise<{
   app: INestApplication;
   tenantUserRepo: ReturnType<typeof makeRepo>;
   consumerUserRepo: ReturnType<typeof makeRepo>;
   rateLimitRepo: ReturnType<typeof makeRepo>;
   auditService: ReturnType<typeof makeMockAudit>;
+  citizenOtpService: { issue: jest.Mock; verify: jest.Mock };
 }> {
   const tenantUserRepo = makeRepo();
   const consumerUserRepo = makeRepo();
   const nonceRepo = makeRepo();
   const rateLimitRepo = makeRepo();
   const auditService = makeMockAudit();
+  const citizenOtpService = {
+    issue: jest.fn(),
+    verify: jest.fn(),
+  };
 
   // Default: no lockout, no existing user
   rateLimitRepo.findOne.mockResolvedValue(null);
@@ -95,6 +102,7 @@ async function createAuthApp(): Promise<{
       { provide: getRepositoryToken(RefreshTokenNonce), useValue: nonceRepo },
       { provide: getRepositoryToken(LoginRateLimit), useValue: rateLimitRepo },
       { provide: AuditService, useValue: auditService },
+      { provide: CitizenOtpService, useValue: citizenOtpService },
     ],
   })
     .overrideProvider(AuditService)
@@ -103,13 +111,70 @@ async function createAuthApp(): Promise<{
 
   // Replace the AuditService used directly by the AuthController
   const app = module.createNestApplication();
+  if (useValidation) {
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  }
   // Replace audit in controller — inject at module level
   (module as any).auditServiceRef = auditService;
 
   await app.init();
 
-  return { app, tenantUserRepo, consumerUserRepo, rateLimitRepo, auditService };
+  return { app, tenantUserRepo, consumerUserRepo, rateLimitRepo, auditService, citizenOtpService };
 }
+
+describe('Auth integration — citizen OTP', () => {
+  let app: INestApplication;
+  let citizenOtpService: { issue: jest.Mock; verify: jest.Mock };
+
+  beforeEach(async () => {
+    const setup = await createAuthApp(true);
+    app = setup.app;
+    citizenOtpService = setup.citizenOtpService;
+  });
+
+  afterEach(async () => { await app.close(); });
+
+  it('POST /auth/citizen/otp returns a generic accepted response', async () => {
+    citizenOtpService.issue.mockResolvedValue({
+      challengeId: '179af2db-a772-4696-9ac3-50d4c70c60ac',
+      retryAfterSeconds: 30,
+    });
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/citizen/otp')
+      .send({ mobile: '+919876543210' })
+      .expect(HttpStatus.ACCEPTED);
+
+    expect(response.body.message).toBe('If the number can receive messages, a code has been sent.');
+    expect(response.body.data).toEqual({
+      challengeId: '179af2db-a772-4696-9ac3-50d4c70c60ac',
+      retryAfterSeconds: 30,
+    });
+  });
+
+  it('POST /auth/citizen/otp/verify returns the citizen session', async () => {
+    citizenOtpService.verify.mockResolvedValue({
+      user: { id: TEST_CONSUMER_ID, phone: '+919876543210' },
+      tokens: { accessToken: 'access', refreshToken: 'refresh' },
+    });
+
+    const response = await request(app.getHttpServer())
+      .post('/auth/citizen/otp/verify')
+      .send({
+        challengeId: '179af2db-a772-4696-9ac3-50d4c70c60ac',
+        mobile: '+919876543210',
+        code: '654321',
+      })
+      .expect(HttpStatus.CREATED);
+
+    expect(response.body.data.tokens).toEqual({ accessToken: 'access', refreshToken: 'refresh' });
+    expect(citizenOtpService.verify).toHaveBeenCalledWith(
+      '179af2db-a772-4696-9ac3-50d4c70c60ac',
+      '+919876543210',
+      '654321',
+    );
+  });
+});
 
 // ─── A. Tenant login ─────────────────────────────────────────────────────────
 
@@ -209,6 +274,13 @@ describe('Auth integration — JWT guard enforcement', () => {
     await request(app.getHttpServer())
       .get('/auth/me')
       .expect(HttpStatus.UNAUTHORIZED);
+  });
+
+  it('allows a citizen JWT to read the current profile', async () => {
+    await request(app.getHttpServer())
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${consumerToken()}`)
+      .expect(HttpStatus.OK);
   });
 
   it('returns 401 for an expired JWT', async () => {

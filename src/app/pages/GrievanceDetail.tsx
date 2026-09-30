@@ -4,8 +4,9 @@ import { ArrowLeft, AlertCircle, Calendar, Clock, CheckCircle, MessageSquare, Se
 import { consumerService, type GrievanceItem } from '../services/api/consumer.service';
 
 const STATUS_COLORS: Record<string, string> = {
-  OPEN: 'bg-warning/10 text-warning border-warning/30',
-  IN_PROGRESS: 'bg-info/10 text-info border-info/30',
+  SUBMITTED: 'bg-warning/10 text-warning border-warning/30',
+  ASSIGNED: 'bg-info/10 text-info border-info/30',
+  REOPENED: 'bg-warning/10 text-warning border-warning/30',
   RESOLVED: 'bg-success/10 text-success border-success/30',
   CLOSED: 'bg-muted text-muted-foreground border-border',
 };
@@ -17,6 +18,7 @@ export default function GrievanceDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [comment, setComment] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -38,6 +40,23 @@ export default function GrievanceDetail() {
       setGrievance(updated);
     } catch {
       setError('Failed to add comment');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!id || reopenReason.trim().length < 10) {
+      setError('Please explain why the resolution did not resolve the issue (at least 10 characters).');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      setGrievance(await consumerService.reopenGrievance(id, reopenReason.trim()));
+      setReopenReason('');
+      setError(null);
+    } catch (reopenError) {
+      setError(reopenError instanceof Error ? reopenError.message : 'Unable to reopen grievance.');
     } finally {
       setSubmitting(false);
     }
@@ -69,7 +88,7 @@ export default function GrievanceDetail() {
     );
   }
 
-  const statusClass = STATUS_COLORS[grievance.status] || STATUS_COLORS.OPEN;
+  const statusClass = STATUS_COLORS[grievance.status] || STATUS_COLORS.SUBMITTED;
 
   return (
     <div className="min-h-full bg-muted/30">
@@ -98,6 +117,29 @@ export default function GrievanceDetail() {
             <h3 className="font-semibold mb-4">Description</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">{grievance.description}</p>
           </div>
+          {grievance.resolution && (
+            <div className="bg-success/5 border border-success/20 rounded-xl p-6">
+              <h3 className="font-semibold mb-2">Resolution</h3>
+              <p className="text-sm text-muted-foreground">{grievance.resolution}</p>
+            </div>
+          )}
+          {grievance.status === 'RESOLVED' && (
+            <div className="bg-card border border-border rounded-xl p-6 space-y-3">
+              <h3 className="font-semibold">Resolution did not resolve the issue?</h3>
+              <textarea
+                value={reopenReason}
+                onChange={(event) => setReopenReason(event.target.value)}
+                minLength={10}
+                maxLength={2000}
+                rows={3}
+                placeholder="Explain what remains unresolved. Reopening is available for 30 days after resolution."
+                className="w-full px-3 py-2 bg-input-background border border-border rounded-lg text-sm resize-none"
+              />
+              <button type="button" disabled={submitting || reopenReason.trim().length < 10} onClick={() => void handleReopen()} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50">
+                Reopen grievance
+              </button>
+            </div>
+          )}
           <div className="bg-card border border-border rounded-xl p-6">
             <h3 className="font-semibold mb-4 flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />

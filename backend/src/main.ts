@@ -10,6 +10,15 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.enableShutdownHooks();
 
+  const trustedProxyCidrs = process.env.TRUSTED_PROXY_CIDRS
+    ?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  app.getHttpAdapter().getInstance().set(
+    'trust proxy',
+    trustedProxyCidrs?.length ? trustedProxyCidrs : false,
+  );
+
   // HTTP security headers (OWASP A05)
   app.use(helmet());
 

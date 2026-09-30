@@ -1,0 +1,6 @@
+services:
+  backend:
+    environment:
+      OTP_FIXED_TEST_ENABLED: "true"
+      OTP_FIXED_TEST_MOBILE: ${OTP_FIXED_TEST_MOBILE:?Set a dedicated test mobile in the private environment file}
+      OTP_FIXED_TEST_CODE: ${OTP_FIXED_TEST_CODE:-123456}

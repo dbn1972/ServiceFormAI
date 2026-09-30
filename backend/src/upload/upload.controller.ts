@@ -1,6 +1,8 @@
 import {
   BadRequestException,
+  Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -19,6 +21,7 @@ import { randomUUID as uuidv4 } from 'crypto';
 // UUID validation helper (replaces uuid's validate)
 const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CitizenOrTenantStaffAuthGuard } from '../auth/guards/citizen-or-tenant-staff-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UploadService } from './upload.service';
 import { AuditService } from '../audit/audit.service';
@@ -46,7 +49,7 @@ export class UploadController {
     private readonly auditService: AuditService,
   ) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CitizenOrTenantStaffAuthGuard)
   @Post('document')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -66,7 +69,12 @@ export class UploadController {
       },
     }),
   )
-  async uploadDocument(@UploadedFile() file: any, @CurrentUser() user: any, @Req() request: any) {
+  async uploadDocument(
+    @UploadedFile() file: any,
+    @Body() body: { applicationId?: string; documentType?: string },
+    @CurrentUser() user: any,
+    @Req() request: any,
+  ) {
     if (!file) {
       throw new BadRequestException('File is required');
     }
@@ -74,13 +82,27 @@ export class UploadController {
     const documentId = uuidv4();
     const extension = path.extname(file.originalname).toLowerCase() || '.bin';
 
-    await this.uploadService.storeDocument({
+    const storageKey = await this.uploadService.storeDocument({
       buffer: file.buffer,
       originalName: file.originalname,
       mimeType: file.mimetype,
       documentId,
       user,
     });
+
+    let applicationDocument: { id: string; document_type: string } | null = null;
+    if (body.applicationId && body.documentType) {
+      applicationDocument = await this.uploadService.attachApplicationDocument({
+        applicationId: body.applicationId,
+        documentId,
+        documentType: body.documentType,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        storageKey,
+        user,
+      });
+    }
 
     void this.auditService.logDocumentUpload({
       actorId: user.id,
@@ -95,6 +117,9 @@ export class UploadController {
       data: {
         url: this.uploadService.getRelativeDocumentUrl(user, documentId),
         documentId,
+        applicationDocumentId: applicationDocument?.id ?? null,
+        applicationId: body.applicationId ?? null,
+        documentType: body.documentType ?? null,
         fileName: file.originalname,
         mimeType: file.mimetype,
         size: file.size,
@@ -103,7 +128,32 @@ export class UploadController {
     };
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CitizenOrTenantStaffAuthGuard)
+  @Get('applications/:applicationId/documents')
+  async getApplicationDocuments(
+    @Param('applicationId') applicationId: string,
+    @CurrentUser() user: any,
+  ) {
+    const documents = await this.uploadService.listApplicationDocuments(applicationId, user);
+
+    return {
+      success: true,
+      data: documents.map((document) => ({
+        id: document.id,
+        applicationId: document.application_id,
+        documentId: document.document_id,
+        documentType: document.document_type,
+        fileName: document.file_name,
+        mimeType: document.mime_type,
+        size: document.file_size,
+        url: this.uploadService.getRelativeDocumentUrl(user, document.document_id),
+        uploadedAt: document.uploaded_at ?? document.created_at,
+        status: document.status,
+      })),
+    };
+  }
+
+  @UseGuards(CitizenOrTenantStaffAuthGuard)
   @Get('document/:documentId')
   async downloadDocument(
     @Param('documentId') documentId: string,
@@ -116,16 +166,17 @@ export class UploadController {
       throw new BadRequestException('Invalid document identifier');
     }
 
-    // Try common extensions in order — the key is stored as documents/{tenant}/{user}/{id}.ext
-    const extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bin'];
-    let s3Key: string | null = null;
+    let s3Key = await this.uploadService.getApplicationDocumentStorageKey(documentId, user);
 
-    for (const ext of extensions) {
-      const candidateKey = buildS3Key(user, documentId, ext);
-      const exists = await this.uploadService['s3']?.objectExists(candidateKey).catch(() => false);
-      if (exists) {
-        s3Key = candidateKey;
-        break;
+    if (!s3Key) {
+      const extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bin'];
+      for (const ext of extensions) {
+        const candidateKey = buildS3Key(user, documentId, ext);
+        const exists = await this.uploadService['s3']?.objectExists(candidateKey).catch(() => false);
+        if (exists) {
+          s3Key = candidateKey;
+          break;
+        }
       }
     }
 
@@ -155,14 +206,10 @@ export class UploadController {
   }
 
   private getIpAddress(request: any): string {
-    const forwarded = request.headers?.['x-forwarded-for'];
-    if (typeof forwarded === 'string' && forwarded.length > 0) {
-      return forwarded.split(',')[0].trim();
-    }
     return request.ip || request.socket?.remoteAddress || 'unknown';
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(CitizenOrTenantStaffAuthGuard)
   @Post('image')
   @UseInterceptors(
     FileInterceptor('file', {
@@ -190,9 +237,6 @@ export class UploadController {
     const imageId = uuidv4();
     const extension = path.extname(file.originalname).toLowerCase() || '.jpg';
 
-    // Store images in serviceformai-assets bucket using a separate key prefix
-    const assetKey = `images/${user.tenantId ?? 'public'}/${user.id}/${imageId}${extension}`;
-
     await this.uploadService.storeDocument({
       buffer: file.buffer,
       originalName: file.originalname,
@@ -218,7 +262,6 @@ export class UploadController {
       success: true,
       data: {
         url: presignedUrl,
-        s3Key: assetKey,
         documentId: imageId,
         fileName: file.originalname,
         mimeType: file.mimetype,

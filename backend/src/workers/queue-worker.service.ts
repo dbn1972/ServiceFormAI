@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, LessThan, Repository } from 'typeorm';
 import { Tenant } from '../database/entities/tenant.entity';
 import { TenantService } from '../database/entities/tenant-service.entity';
 import { Application } from '../database/entities/application.entity';
@@ -8,6 +8,7 @@ import { ConsumerUser } from '../database/entities/consumer-user.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
 import { QueueService, type ClaimedQueueMessage } from '../scalability/queue.service';
 import { ScalabilityMetricsService } from '../scalability/scalability-metrics.service';
+import { OutboxEvent } from '../database/entities/outbox-event.entity';
 
 @Injectable()
 export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -28,6 +29,10 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly consumerUserRepository: Repository<ConsumerUser>,
     @InjectRepository(AuditLog)
     private readonly auditLogRepository: Repository<AuditLog>,
+    @InjectRepository(OutboxEvent)
+    private readonly outboxRepository: Repository<OutboxEvent>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   onModuleInit() {
@@ -44,6 +49,10 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
 
     while (!this.stopped) {
       try {
+        const dispatchedOutboxEvent = await this.processPendingOutboxEvent();
+        if (dispatchedOutboxEvent) {
+          continue;
+        }
         const claimed = await this.queueService.claimNextMessage();
         if (!claimed) {
           await this.sleep(1000);
@@ -63,6 +72,43 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.logger.log('Queue worker stopped.');
+  }
+
+  async processPendingOutboxEvent(): Promise<boolean> {
+    const staleProcessingBefore = new Date(Date.now() - 30_000);
+    const event = await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(OutboxEvent);
+      const next = await repository.findOne({
+        where: [
+          { status: 'pending' },
+          { status: 'processing', created_at: LessThan(staleProcessingBefore) },
+        ],
+        order: { created_at: 'ASC' },
+        lock: { mode: 'pessimistic_write', onLocked: 'skip_locked' },
+      });
+      if (!next) return null;
+      next.status = 'processing';
+      return repository.save(next);
+    });
+
+    if (!event) return false;
+
+    try {
+      const result = await this.queueService.enqueueWriteCommand({
+        type: event.event_type,
+        module: 'transactional-outbox',
+        payload: event.payload,
+        idempotencyKey: event.idempotency_key,
+      });
+      event.status = result.queued || result.reason === 'duplicate' ? 'published' : 'pending';
+      await this.outboxRepository.save(event);
+    } catch (error) {
+      event.status = 'pending';
+      await this.outboxRepository.save(event);
+      throw error;
+    }
+
+    return event.status === 'published';
   }
 
   private async processMessage(claimed: ClaimedQueueMessage) {
@@ -94,6 +140,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         case 'service.created':
         case 'service.updated':
         case 'service.deleted':
+        case 'service.archived':
           await this.handleServiceMutation(claimed.message.type, claimed.message.payload as Record<string, unknown>);
           break;
         default:
@@ -121,6 +168,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
           id: applicationId,
           tenant_id: String(payload.tenantId),
           service_id: String(payload.serviceId),
+          service_release_id: payload.serviceReleaseId ? String(payload.serviceReleaseId) : null,
           consumer_id: String(payload.consumerId),
           consumer_source: String(payload.consumerSource || 'web'),
           form_data: payload.formData,
@@ -167,7 +215,9 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         eligibility_rules: payload.eligibilityRules as any,
         required_documents: payload.requiredDocuments as any,
         backend_api_config: payload.backendApiConfig as any,
+        manifest: payload.manifest as any,
         published: Boolean(payload.published),
+        archived: false,
         sla_days: payload.slaDays as number | null,
         fees: payload.fees as number | null,
       });
@@ -195,6 +245,10 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`service.persist.update: service ${serviceId} not found — skipping.`);
         return;
       }
+      if (service.published || service.archived) {
+        this.logger.warn(`service.persist.update: refusing to mutate published or archived service ${serviceId}.`);
+        return;
+      }
 
       Object.assign(service, {
         name: payload.name ?? service.name,
@@ -205,7 +259,9 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         eligibility_rules: payload.eligibilityRules ?? service.eligibility_rules,
         required_documents: payload.requiredDocuments ?? service.required_documents,
         backend_api_config: payload.backendApiConfig ?? service.backend_api_config,
-        published: payload.published ?? service.published,
+        manifest: payload.manifest ?? service.manifest,
+        published: service.published,
+        archived: false,
         sla_days: payload.slaDays ?? service.sla_days,
         fees: payload.fees ?? service.fees,
       });
@@ -233,7 +289,9 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`service.persist.delete: service ${serviceId} already removed — idempotent skip.`);
         return;
       }
-      await this.tenantServiceRepository.remove(service);
+      service.published = false;
+      service.archived = true;
+      await this.tenantServiceRepository.save(service);
       this.logger.log(`service.persist.delete: deleted service ${serviceId}.`);
     } catch (err) {
       this.logger.error(

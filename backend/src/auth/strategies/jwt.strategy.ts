@@ -10,6 +10,7 @@ export interface JwtPayload {
   tokenType: 'access' | 'refresh';
   tenantId?: string;
   consumerSource?: string;
+  authSource?: string;
 }
 
 @Injectable()
@@ -19,6 +20,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: getJwtSecret(),
+      algorithms: ['HS256'],
     });
   }
 
@@ -27,12 +29,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (payload.tokenType !== 'access') {
       throw new UnauthorizedException('Invalid token type');
     }
+    // Reject password reset tokens presented as bearer tokens
+    if ((payload as any).purpose === 'password_reset') {
+      throw new UnauthorizedException('Invalid token type');
+    }
     return {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
       tenantId: payload.tenantId,
       consumerSource: payload.consumerSource,
+      authSource: payload.authSource,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Check, Sparkles, FileText, GraduationCap, Briefcase,
@@ -6,14 +6,17 @@ import {
   Upload, Clock, Plus, Trash2, Type, Calendar, CheckSquare, Info, Play
 } from 'lucide-react';
 import { useAutoSave } from '../hooks/useAutoSave';
-import confetti from 'canvas-confetti';
+import { validateServiceManifest } from '@serviceformai/service-manifest';
+import type { ManifestWorkflowStage } from '@serviceformai/service-manifest';
 import { producerService } from '../services/api/producer.service';
 import { toast } from 'sonner';
+import { buildManifestFromServiceDraft } from '../utils/serviceManifest';
 
 const SERVICE_TEMPLATES = [
   { id: 'scholarship', name: 'Scholarship Application', category: 'Education', icon: GraduationCap, sla: '45 days', popular: true },
   { id: 'birth-cert', name: 'Birth Certificate', category: 'Civil Records', icon: FileText, sla: '7 days', popular: true },
   { id: 'income-cert', name: 'Income Certificate', category: 'Revenue', icon: Briefcase, sla: '14 days', popular: true },
+  { id: 'trade-license', name: 'Trade Licence', category: 'Municipal', icon: Landmark, sla: '30 days', popular: false },
   { id: 'caste-cert', name: 'Caste Certificate', category: 'Revenue', icon: BadgeCheck, sla: '30 days', popular: false },
   { id: 'domicile', name: 'Domicile Certificate', category: 'Revenue', icon: MapPin, sla: '21 days', popular: false },
   { id: 'health-card', name: 'Health Card', category: 'Health', icon: Hospital, sla: '10 days', popular: false },
@@ -46,8 +49,10 @@ interface FormField {
   required: boolean;
   prefillable: boolean;
   mapping?: string;
-  options?: string[];
-  validation?: string;
+  options?: Array<string | { label: string; value: string }>;
+  validation?: Record<string, unknown>;
+  placeholder?: string;
+  helpText?: string;
 }
 
 interface ServiceData {
@@ -58,7 +63,9 @@ interface ServiceData {
   sla: string;
   fields: FormField[];
   eligibilityRules: Array<{ field: string; operator: string; value: string }>;
-  documents: Array<{ name: string; digilocker: string; required: boolean }>;
+  documents: Array<{ name: string; digilocker: string; required: boolean; description?: string }>;
+  formSections?: Array<{ id: string; title: string; fieldIds: string[] }>;
+  workflowStages?: ManifestWorkflowStage[];
 }
 
 const WIZARD_STEPS = [
@@ -86,7 +93,25 @@ export default function ServiceCreationWizard() {
   });
 
   const [showPreview, setShowPreview] = useState(false);
-  const [published, setPublished] = useState(false);
+  const [approvalPending, setApprovalPending] = useState(false);
+  const [pendingServiceId, setPendingServiceId] = useState<string | null>(null);
+  const [certifiedTemplateIds, setCertifiedTemplateIds] = useState<string[]>([]);
+  const [certifiedTemplates, setCertifiedTemplates] = useState<Awaited<ReturnType<typeof producerService.getCertifiedServiceTemplates>>>([]);
+
+  useEffect(() => {
+    let active = true;
+    producerService.getCertifiedServiceTemplates()
+      .then((templates) => {
+        if (active) {
+          setCertifiedTemplates(templates);
+          setCertifiedTemplateIds(templates.map((template) => template.id));
+        }
+      })
+      .catch(() => {
+        if (active) toast.error('Certified template catalog is unavailable');
+      });
+    return () => { active = false; };
+  }, []);
 
   // Auto-save functionality
   const saveStatus = useAutoSave(serviceData, {
@@ -138,6 +163,33 @@ export default function ServiceCreationWizard() {
       sla: template.sla,
     };
 
+    const certifiedTemplate = certifiedTemplates.find((item) => item.id === templateId);
+    if (certifiedTemplate) {
+      updates.description = certifiedTemplate.description;
+      updates.formSections = certifiedTemplate.formSchema.sections;
+      updates.workflowStages = certifiedTemplate.workflowConfig.stages as ManifestWorkflowStage[];
+      updates.fields = certifiedTemplate.formSchema.fields.map((field) => ({
+        id: field.id,
+        type: field.type,
+        label: field.label,
+        required: field.required ?? false,
+        prefillable: false,
+        options: field.options,
+        validation: field.validation,
+        placeholder: field.placeholder,
+        helpText: field.helpText,
+      }));
+      updates.documents = certifiedTemplate.requiredDocuments.map((document) => ({
+        name: document.name,
+        digilocker: document.digilockerTypes?.join(',') ?? '',
+        required: document.required,
+        description: document.description,
+      }));
+      updateServiceData(updates);
+      nextStep();
+      return;
+    }
+
     // Add template-specific fields
     if (templateId === 'scholarship') {
       updates.description = 'Financial assistance for eligible students pursuing higher education.';
@@ -169,6 +221,30 @@ export default function ServiceCreationWizard() {
         { name: 'Hospital Birth Report', digilocker: 'HOSPITAL_BIRTH_REPORT', required: true },
         { name: 'Parents Aadhaar', digilocker: 'AADHAAR', required: true },
       ];
+    } else if (templateId === 'income-cert') {
+      updates.description = 'Apply for an income certificate issued by the competent government authority.';
+      updates.fields = [
+        { id: 'applicant_name', type: 'text', label: 'Applicant full name', required: true, prefillable: false },
+        { id: 'annual_income', type: 'number', label: 'Annual family income', required: true, prefillable: false },
+        { id: 'residence_address', type: 'textarea', label: 'Current residence address', required: true, prefillable: false },
+      ];
+      updates.documents = [
+        { name: 'Identity proof', digilocker: 'AADHAAR', required: true },
+        { name: 'Income evidence', digilocker: '', required: true },
+        { name: 'Residence proof', digilocker: '', required: true },
+      ];
+    } else if (templateId === 'trade-license') {
+      updates.description = 'Apply for a municipal trade licence with premises and business details.';
+      updates.fields = [
+        { id: 'business_name', type: 'text', label: 'Business name', required: true, prefillable: false },
+        { id: 'business_address', type: 'textarea', label: 'Business premises address', required: true, prefillable: false },
+        { id: 'business_activity', type: 'dropdown', label: 'Business activity', required: true, prefillable: false, options: ['Retail', 'Food services', 'Manufacturing', 'Other'] },
+      ];
+      updates.documents = [
+        { name: 'Identity proof', digilocker: 'AADHAAR', required: true },
+        { name: 'Premises proof', digilocker: '', required: true },
+        { name: 'Business registration evidence', digilocker: '', required: true },
+      ];
     }
 
     updateServiceData(updates);
@@ -176,47 +252,64 @@ export default function ServiceCreationWizard() {
   };
 
   const handlePublish = async () => {
+    const manifest = buildManifestFromServiceDraft(serviceData);
+    const manifestValidation = validateServiceManifest(manifest);
+
+    if (!manifestValidation.valid) {
+      toast.error('Manifest validation failed', {
+        description: manifestValidation.errors[0]?.message || 'Please review the service configuration.',
+      });
+      return;
+    }
+
     try {
       const slaDays = parseInt(serviceData.sla?.replace(/\D/g, '') || '0', 10);
-      const created = await producerService.createService({
+      const serviceDraft = {
         name: serviceData.name,
         description: serviceData.description || '',
         category: serviceData.category,
-        formSchema: {
-          title: serviceData.name,
-          fields: (serviceData.fields || []).map((f: FormField) => ({
-            id: f.id,
-            name: f.id,
-            type: f.type as any,
-            label: f.label,
-            required: f.required,
-            options: f.options?.map((o: string) => ({ label: o, value: o })),
-          })),
-        },
-        workflowConfig: slaDays ? { slaDays } as any : undefined,
-      });
+        manifest,
+        formSchema: manifest.service.formSchema as any,
+        workflowConfig: {
+          stages: manifest.workflow.stages,
+          ...(slaDays ? { slaDays } : {}),
+        } as any,
+        requiredDocuments: manifest.requiredDocuments,
+      };
+      const certifiedTemplateIds = new Set(['income-cert', 'trade-license', 'birth-cert']);
+      const created = serviceData.template && certifiedTemplateIds.has(serviceData.template)
+        ? await producerService.cloneCertifiedServiceTemplate(serviceData.template, serviceDraft)
+        : await producerService.createService(serviceDraft);
+
+      const simulation = await producerService.simulateService(created.id);
+      const failedChecks = simulation.checks.filter((check) => !check.passed);
+      if (!simulation.passed || failedChecks.length > 0) {
+        toast.error('Simulation failed; the draft was retained', {
+          description: failedChecks.map((check) => check.id).join(', ') || 'Correct the draft and run simulation again.',
+        });
+        return;
+      }
 
       await producerService.publishService(created.id);
-    } catch {
-      toast.error('Failed to create service. Draft saved locally.');
+      setPendingServiceId(created.id);
+      setApprovalPending(true);
+    } catch (error) {
+      toast.error('Service was not published', {
+        description: error instanceof Error
+          ? error.message
+          : 'The service remains a draft. Correct the issue and retry.',
+      });
+      return;
     }
 
-    // Trigger confetti regardless (optimistic UX)
-    confetti({
-      particleCount: 100,
-      spread: 70,
-      origin: { y: 0.6 }
+    toast.success('Publication requested', {
+      description: 'A different tenant administrator must approve the simulated draft before it goes live.',
     });
-
-    setPublished(true);
 
     // Clear draft from localStorage
     localStorage.removeItem('service-creation-draft');
 
     // Navigate to success screen after 2 seconds
-    setTimeout(() => {
-      navigate('/tenant/dashboard');
-    }, 3000);
   };
 
   const addField = (fieldType: string) => {
@@ -259,7 +352,11 @@ export default function ServiceCreationWizard() {
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <Step1TemplateSelection onSelectTemplate={handleTemplateSelect} selected={serviceData.template} />;
+        return <Step1TemplateSelection
+          onSelectTemplate={handleTemplateSelect}
+          selected={serviceData.template}
+          certifiedTemplateIds={certifiedTemplateIds}
+        />;
       case 2:
         return <Step2ServiceDetails data={serviceData} onChange={updateServiceData} />;
       case 3:
@@ -277,7 +374,7 @@ export default function ServiceCreationWizard() {
       case 4:
         return <Step4Eligibility data={serviceData} onChange={updateServiceData} />;
       case 5:
-        return <Step5Review data={serviceData} onPublish={handlePublish} published={published} />;
+        return <Step5Review data={serviceData} onPublish={handlePublish} approvalPending={approvalPending} pendingServiceId={pendingServiceId} />;
       default:
         return null;
     }
@@ -343,7 +440,7 @@ export default function ServiceCreationWizard() {
       </div>
 
       {/* Footer Navigation */}
-      {!published && (
+      {!approvalPending && (
         <div className="bg-card border-t border-border sticky bottom-0">
           <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
             <button
@@ -389,7 +486,11 @@ export default function ServiceCreationWizard() {
 }
 
 // Step 1: Template Selection
-function Step1TemplateSelection({ onSelectTemplate, selected }: { onSelectTemplate: (id: string) => void; selected?: string }) {
+function Step1TemplateSelection({ onSelectTemplate, selected, certifiedTemplateIds }: {
+  onSelectTemplate: (id: string) => void;
+  selected?: string;
+  certifiedTemplateIds: string[];
+}) {
   const popular = SERVICE_TEMPLATES.filter(t => t.popular);
   const all = SERVICE_TEMPLATES;
 
@@ -397,7 +498,7 @@ function Step1TemplateSelection({ onSelectTemplate, selected }: { onSelectTempla
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h2 className="text-xl font-semibold mb-2">Choose a Service Template</h2>
-        <p className="text-muted-foreground">Start with a pre-configured template or build from scratch</p>
+        <p className="text-muted-foreground">Certified templates are cloned from the platform catalog. Other choices start as local drafts.</p>
       </div>
 
       <div>
@@ -419,6 +520,9 @@ function Step1TemplateSelection({ onSelectTemplate, selected }: { onSelectTempla
                   </div>
                   <div className="flex-1">
                     <h4 className="font-semibold mb-1">{template.name}</h4>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {certifiedTemplateIds.includes(template.id) ? 'Platform-certified reference; tenant rules required' : 'Starter draft'}
+                    </p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>{template.category}</span>
                       <span>•</span>
@@ -663,7 +767,7 @@ function Step3FormBuilder({
                 {field.type === 'text' && (
                   <input
                     type="text"
-                    placeholder={field.prefillable ? `Prefilled from ${field.mapping}` : `Enter ${field.label.toLowerCase()}`}
+                    placeholder={field.placeholder || (field.prefillable ? `Prefilled from ${field.mapping}` : `Enter ${field.label.toLowerCase()}`)}
                     className="w-full px-3 py-2 border border-border rounded-lg bg-input text-sm"
                     disabled
                   />
@@ -675,12 +779,18 @@ function Step3FormBuilder({
                     disabled
                   />
                 )}
-                {field.type === 'dropdown' && (
+                {field.type === 'number' && <input type="number" min={typeof field.validation?.min === 'number' ? field.validation.min : undefined} max={typeof field.validation?.max === 'number' ? field.validation.max : undefined} className="w-full px-3 py-2 border border-border rounded-lg bg-input text-sm" disabled />}
+                {(field.type === 'dropdown' || field.type === 'select') && (
                   <select className="w-full px-3 py-2 border border-border rounded-lg bg-input text-sm" disabled>
                     <option>Select {field.label.toLowerCase()}</option>
-                    {field.options?.map(opt => <option key={opt}>{opt}</option>)}
+                    {field.options?.map((option) => {
+                      const label = typeof option === 'string' ? option : option.label;
+                      const value = typeof option === 'string' ? option : option.value;
+                      return <option key={value} value={value}>{label}</option>;
+                    })}
                   </select>
                 )}
+                {field.type === 'textarea' && <textarea placeholder={field.placeholder} className="w-full px-3 py-2 border border-border rounded-lg bg-input text-sm" disabled />}
                 {field.type === 'file' && (
                   <div className="border-2 border-dashed border-border rounded-lg p-4 text-center text-sm text-muted-foreground">
                     Click to upload or drag and drop
@@ -782,28 +892,24 @@ function Step4Eligibility({ data, onChange }: { data: ServiceData; onChange: (up
 }
 
 // Step 5: Review & Publish
-function Step5Review({ data, onPublish, published }: { data: ServiceData; onPublish: () => void; published: boolean }) {
-  if (published) {
-    return (
-      <div className="max-w-2xl mx-auto text-center py-12">
-        <div className="w-24 h-24 bg-success/10 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Check className="w-12 h-12 text-success" />
-        </div>
-        <h2 className="text-3xl font-bold mb-3">🎉 Service Published!</h2>
-        <p className="text-lg text-muted-foreground mb-6">
-          "{data.name}" is now live and accepting citizen applications
-        </p>
-        <div className="bg-card border border-border rounded-xl p-6 mb-6">
-          <p className="text-sm text-muted-foreground mb-2">Service is now available at:</p>
-          <p className="font-mono text-sm text-primary">your-tenant.serviceformai.gov.in/services/{data.template}</p>
-        </div>
-        <p className="text-sm text-muted-foreground">Redirecting to dashboard...</p>
-      </div>
-    );
-  }
+function Step5Review({ data, onPublish, approvalPending, pendingServiceId }: {
+  data: ServiceData;
+  onPublish: () => void;
+  approvalPending: boolean;
+  pendingServiceId: string | null;
+}) {
+  const manifest = buildManifestFromServiceDraft(data);
+  const manifestValidation = validateServiceManifest(manifest);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {approvalPending && (
+        <div className="border border-warning/40 bg-warning/10 rounded-lg p-5" role="status">
+          <h2 className="font-semibold">Awaiting independent approval</h2>
+          <p className="text-sm text-muted-foreground mt-1">The draft passed simulation and is not live yet. A different tenant administrator must approve it.</p>
+          <p className="text-xs font-mono text-muted-foreground mt-2">Service ID: {pendingServiceId}</p>
+        </div>
+      )}
       <div className="bg-card border border-border rounded-xl p-6">
         <h2 className="text-xl font-semibold mb-4">Review Service</h2>
 
@@ -869,6 +975,32 @@ function Step5Review({ data, onPublish, published }: { data: ServiceData; onPubl
               </div>
             </div>
           )}
+
+          <div>
+            <p className="text-sm font-medium text-muted-foreground mb-2">Manifest Readiness</p>
+            <div className="space-y-2 text-sm">
+              <div className="p-2 bg-muted rounded flex items-center justify-between">
+                <span>Manifest Version</span>
+                <span className="font-medium">{manifest.manifestVersion}</span>
+              </div>
+              <div className="p-2 bg-muted rounded flex items-center justify-between">
+                <span>Service Type</span>
+                <span className="font-medium capitalize">{manifest.serviceType}</span>
+              </div>
+              <div className="p-2 bg-muted rounded flex items-center justify-between">
+                <span>Validation</span>
+                <span className={`font-medium ${manifestValidation.valid ? 'text-success' : 'text-destructive'}`}>
+                  {manifestValidation.valid ? 'Ready to publish' : `${manifestValidation.errors.length} issue(s)`}
+                </span>
+              </div>
+            </div>
+            {!manifestValidation.valid && (
+              <div className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                <p className="font-medium mb-1">First validation issue</p>
+                <p>{manifestValidation.errors[0]?.path}: {manifestValidation.errors[0]?.message}</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import { Tenant } from '../database/entities/tenant.entity';
 import { AuditService } from '../audit/audit.service';
 import { CreateTenantDto, UpdateTenantDto } from './dto/tenant.dto';
 import { WebhookDeliveryService } from './webhook-delivery.service';
+import { validateTheme } from '../validation/theme-validator';
 
 // Valid status transitions
 const STATUS_TRANSITIONS: Record<string, string[]> = {
@@ -49,6 +50,7 @@ export class TenantService {
       status: 'onboarding',
       contact_email: dto.contact_email ?? null,
       api_base_url: dto.api_base_url ?? null,
+      governance_scope: dto.governance_scope ?? null,
       branding: dto.branding ?? null,
       auth_policy: dto.auth_policy ?? null,
       consent_policy: dto.consent_policy ?? null,
@@ -126,7 +128,23 @@ export class TenantService {
     }
     if (dto.contact_email !== undefined) tenant.contact_email = dto.contact_email;
     if (dto.api_base_url !== undefined) tenant.api_base_url = dto.api_base_url;
-    if (dto.branding !== undefined) tenant.branding = { ...tenant.branding, ...dto.branding };
+    if (dto.governance_scope !== undefined) {
+      tenant.governance_scope = { ...tenant.governance_scope, ...dto.governance_scope };
+    }
+    if (dto.branding !== undefined) {
+      // Validate theme if present in branding update
+      const brandingUpdate = dto.branding as Record<string, unknown>;
+      if (brandingUpdate?.theme !== undefined) {
+        const themeResult = validateTheme(brandingUpdate.theme);
+        if (!themeResult.valid) {
+          throw new BadRequestException({
+            success: false,
+            errors: themeResult.errors,
+          });
+        }
+      }
+      tenant.branding = { ...tenant.branding, ...dto.branding };
+    }
     if (dto.auth_policy !== undefined) tenant.auth_policy = { ...tenant.auth_policy, ...dto.auth_policy };
     if (dto.consent_policy !== undefined) tenant.consent_policy = { ...tenant.consent_policy, ...dto.consent_policy };
     if (dto.notification_policy !== undefined) tenant.notification_policy = { ...tenant.notification_policy, ...dto.notification_policy };

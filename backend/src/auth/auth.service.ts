@@ -16,6 +16,7 @@ import {
   getJwtRefreshExpiry,
   getJwtRefreshSecret,
   getJwtSecret,
+  getPasswordResetSecret,
 } from './auth-secrets';
 
 @Injectable()
@@ -39,7 +40,7 @@ export class AuthService {
       throw new ConflictException('User already exists');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const passwordHash = await bcrypt.hash(dto.password, 12);
 
     const user = this.tenantUserRepository.create({
       id: uuidv4(),
@@ -141,7 +142,7 @@ export class AuthService {
       user.email = dto.email || user.email;
       user.phone = dto.phone || user.phone;
       user.password_hash = dto.password
-        ? await bcrypt.hash(dto.password, 10)
+        ? await bcrypt.hash(dto.password, 12)
         : user.password_hash;
       user.active = true;
       user.digilocker_data = dto.digilockerData || user.digilocker_data;
@@ -155,7 +156,7 @@ export class AuthService {
         email: dto.email,
         phone: dto.phone,
         password_hash: dto.password
-          ? await bcrypt.hash(dto.password, 10)
+          ? await bcrypt.hash(dto.password, 12)
           : null,
         active: true,
         digilocker_data: dto.digilockerData,
@@ -223,6 +224,79 @@ export class AuthService {
         externalId: user.external_id,
         email: user.email,
         phone: user.phone,
+      },
+      tokens,
+    };
+  }
+
+  async createConsumerSessionForMobile(mobile: string) {
+    let user = await this.consumerUserRepository.findOne({
+      where: [
+        { phone: mobile },
+        { consumer_source: 'mobile', external_id: mobile },
+      ],
+    });
+
+    if (user && !user.active) {
+      throw new UnauthorizedException('Account is inactive');
+    }
+
+    if (!user) {
+      user = this.consumerUserRepository.create({
+        id: uuidv4(),
+        name: null,
+        consumer_source: 'mobile',
+        external_id: mobile,
+        email: null,
+        phone: mobile,
+        password_hash: null,
+        active: true,
+        digilocker_data: null,
+      });
+      await this.consumerUserRepository.save(user);
+    }
+
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email || '',
+      'consumer',
+      undefined,
+      user.consumer_source,
+    );
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        consumerSource: user.consumer_source,
+        externalId: user.external_id,
+        email: user.email,
+        phone: user.phone,
+      },
+      tokens,
+    };
+  }
+
+  async createTenantStaffSessionForKeycloak(user: {
+    id: string;
+    email: string;
+    role: string;
+    tenantId: string;
+  }) {
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+      user.role,
+      user.tenantId,
+      undefined,
+      'keycloak',
+    );
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
       },
       tokens,
     };
@@ -331,6 +405,9 @@ export class AuthService {
   }
 
   async forgotPassword(email: string, tenantId?: string): Promise<{ resetToken: string }> {
+    const minResponseTime = 200;
+    const start = Date.now();
+
     let userId: string | undefined;
     let userRole: string | undefined;
     let resolvedTenantId: string | undefined;
@@ -356,20 +433,29 @@ export class AuthService {
 
     // Always return success to prevent email enumeration attacks
     if (!userId) {
+      const elapsed = Date.now() - start;
+      if (elapsed < minResponseTime) {
+        await new Promise(r => setTimeout(r, minResponseTime - elapsed));
+      }
       return { resetToken: '' };
     }
 
     const resetToken = this.jwtService.sign(
       { sub: userId, email, role: userRole, tenantId: resolvedTenantId, purpose: 'password_reset' },
-      { secret: getJwtSecret(), expiresIn: '1h' },
+      { secret: getPasswordResetSecret(), expiresIn: '1h' },
     );
+
+    const elapsed = Date.now() - start;
+    if (elapsed < minResponseTime) {
+      await new Promise(r => setTimeout(r, minResponseTime - elapsed));
+    }
 
     return { resetToken };
   }
 
   async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string }> {
     try {
-      const payload = this.jwtService.verify(token, { secret: getJwtSecret() });
+      const payload = this.jwtService.verify(token, { secret: getPasswordResetSecret() });
       if (payload.purpose !== 'password_reset') {
         return { valid: false };
       }
@@ -382,7 +468,7 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string): Promise<void> {
     let payload: any;
     try {
-      payload = this.jwtService.verify(token, { secret: getJwtSecret() });
+      payload = this.jwtService.verify(token, { secret: getPasswordResetSecret() });
     } catch {
       throw new UnauthorizedException('Invalid or expired reset token');
     }
@@ -391,7 +477,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
 
     if (payload.tenantId) {
       await this.tenantUserRepository.update(
@@ -412,6 +498,7 @@ export class AuthService {
     role: string,
     tenantId?: string,
     consumerSource?: string,
+    authSource?: string,
   ) {
     const jti = uuidv4();
 
@@ -421,6 +508,7 @@ export class AuthService {
       role,
       tenantId,
       consumerSource,
+      authSource,
     };
 
     const accessToken = this.jwtService.sign(

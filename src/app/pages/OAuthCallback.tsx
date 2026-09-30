@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { useParams } from 'react-router-dom';
 import {
   validateOAuthState,
   exchangeCodeForToken,
@@ -8,11 +9,18 @@ import {
   getActiveOAuthProvider,
   type SSOProvider
 } from '../services/sso';
+import { completeKeycloakLogin } from '../services/keycloak-oidc';
 import { useApp } from '../context/AppContext';
 import { toast } from 'sonner';
+import {
+  clearPendingOnboardingIdentity,
+  isOnboardingCompletedForUser,
+  setPendingOnboardingIdentity,
+} from '../utils/onboarding';
 
 export default function OAuthCallback() {
-  const { loginWithSSO } = useApp();
+  const { loginWithSSO, loginWithKeycloak } = useApp();
+  const { provider: providerParam } = useParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -34,12 +42,28 @@ export default function OAuthCallback() {
         throw new Error(errorDescription || error);
       }
 
+      if (providerParam === 'keycloak') {
+        const keycloakUser = await completeKeycloakLogin();
+        const authenticatedUser = await loginWithKeycloak(keycloakUser.access_token);
+        if (!authenticatedUser) {
+          throw new Error('Tenant staff membership could not be resolved');
+        }
+        setStatus('success');
+        toast.success('Signed in through your government identity provider');
+        clearPendingOnboardingIdentity();
+        window.setTimeout(() => {
+          window.location.assign('/dashboard');
+        }, 500);
+        return;
+      }
+
       if (!code || !state) {
         throw new Error('Missing authorization code or state');
       }
 
       // Get provider from session
-      const provider = getActiveOAuthProvider();
+      const providerFromSession = getActiveOAuthProvider();
+      const provider = (providerFromSession || providerParam) as SSOProvider | undefined;
       if (!provider) {
         throw new Error('OAuth provider not found');
       }
@@ -60,20 +84,31 @@ export default function OAuthCallback() {
       clearOAuthState(provider);
 
       // Login with SSO profile
-      const success = await loginWithSSO(provider, {
+      const authenticatedUser = await loginWithSSO(provider, {
         ...profile,
         accessToken: tokenResponse.access_token,
         refreshToken: tokenResponse.refresh_token,
         expiresIn: tokenResponse.expires_in,
       });
 
-      if (success) {
+      if (authenticatedUser) {
         setStatus('success');
         toast.success(`Logged in with ${getProviderName(provider)}!`);
 
+        const onboardingIdentity = authenticatedUser.email || authenticatedUser.id || authenticatedUser.mobile;
+        const onboardingCompleted = isOnboardingCompletedForUser(authenticatedUser);
+        if (!onboardingCompleted) {
+          setPendingOnboardingIdentity(onboardingIdentity);
+        } else {
+          clearPendingOnboardingIdentity();
+        }
+        const redirectPath = provider === 'digilocker' && !onboardingCompleted
+          ? '/onboarding/citizen'
+          : '/dashboard';
+
         // Redirect to dashboard after short delay
         setTimeout(() => {
-          window.location.href = '/dashboard';
+          window.location.href = redirectPath;
         }, 1500);
       } else {
         throw new Error('SSO login failed');

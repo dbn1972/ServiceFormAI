@@ -1,4 +1,4 @@
-import { IsUUID, IsObject } from 'class-validator';
+import { IsUUID, IsObject, IsOptional, IsInt, Min } from 'class-validator';
 
 export class SubmitApplicationDto {
   @IsUUID()
@@ -6,4 +6,13 @@ export class SubmitApplicationDto {
 
   @IsObject()
   formData: any;
+
+  @IsOptional()
+  @IsUUID()
+  applicationId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  schemaVersion?: number;
 }

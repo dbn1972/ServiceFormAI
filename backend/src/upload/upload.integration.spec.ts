@@ -23,6 +23,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, HttpStatus } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -34,13 +35,19 @@ import { UploadService } from './upload.service';
 import { S3StorageService } from './s3-storage.service';
 import { AuditService } from '../audit/audit.service';
 import { JwtStrategy } from '../auth/strategies/jwt.strategy';
+import { Application } from '../database/entities/application.entity';
+import { ApplicationDocument } from '../database/entities/application-document.entity';
 
 import {
   makeMockAudit,
   makeMockS3,
+  makeRepo,
   adminToken,
+  consumerToken,
   signTestJwt,
   TEST_TENANT_ID,
+  TEST_APPLICATION_ID,
+  TEST_CONSUMER_ID,
   TEST_USER_ID_ADMIN,
 } from '../test/test-helpers';
 
@@ -49,6 +56,8 @@ import {
 async function createUploadApp() {
   const mockS3 = makeMockS3();
   const mockAudit = makeMockAudit();
+  const mockApplicationRepo = makeRepo<Application>();
+  const mockApplicationDocumentRepo = makeRepo<ApplicationDocument>();
 
   const module: TestingModule = await Test.createTestingModule({
     imports: [
@@ -63,13 +72,15 @@ async function createUploadApp() {
       { provide: APP_GUARD, useClass: ThrottlerGuard },
       { provide: S3StorageService, useValue: mockS3 },
       { provide: AuditService, useValue: mockAudit },
+      { provide: getRepositoryToken(Application), useValue: mockApplicationRepo },
+      { provide: getRepositoryToken(ApplicationDocument), useValue: mockApplicationDocumentRepo },
     ],
   }).compile();
 
   const app = module.createNestApplication();
   await app.init();
 
-  return { app, mockS3, mockAudit };
+  return { app, mockS3, mockAudit, mockApplicationRepo, mockApplicationDocumentRepo };
 }
 
 // ─── A. RBAC: authentication required ────────────────────────────────────────
@@ -87,6 +98,13 @@ describe('Upload integration — authentication', () => {
       .post('/upload/document')
       .attach('file', Buffer.from('%PDF-1.4 test'), 'test.pdf')
       .expect(HttpStatus.UNAUTHORIZED);
+  });
+
+  it('POST /upload/document accepts citizen auth and reaches upload validation', async () => {
+    await request(app.getHttpServer())
+      .post('/upload/document')
+      .set('Authorization', `Bearer ${consumerToken()}`)
+      .expect(HttpStatus.BAD_REQUEST);
   });
 
   it('GET /upload/document/:id returns 401 without JWT', async () => {
@@ -146,6 +164,90 @@ describe('Upload integration — document upload happy path', () => {
     expect(res.status).toBe(HttpStatus.CREATED);
     expect(res.body.data.mimeType).toBe('image/jpeg');
     expect(res.body.data.documentId).toBeDefined();
+  });
+});
+
+describe('Upload integration — application document persistence', () => {
+  let app: INestApplication;
+  let mockS3: ReturnType<typeof makeMockS3>;
+  let mockApplicationRepo: ReturnType<typeof makeRepo<Application>>;
+  let mockApplicationDocumentRepo: ReturnType<typeof makeRepo<ApplicationDocument>>;
+
+  beforeEach(async () => {
+    ({ app, mockS3, mockApplicationRepo, mockApplicationDocumentRepo } = await createUploadApp());
+  });
+  afterEach(async () => { await app.close(); });
+
+  it('stores and rehydrates an application-linked upload', async () => {
+    const uploadedAt = new Date('2026-09-27T00:00:00.000Z');
+    const savedDocument = {
+      id: '11111111-1111-4111-8111-111111111111',
+      application_id: TEST_APPLICATION_ID,
+      tenant_id: TEST_TENANT_ID,
+      consumer_id: TEST_CONSUMER_ID,
+      service_id: '00000000-0000-0000-0002-000000000001',
+      document_id: '22222222-2222-4222-8222-222222222222',
+      document_type: 'marksheet',
+      file_name: 'marksheet.pdf',
+      mime_type: 'application/pdf',
+      file_size: 19,
+      storage_key: 'documents/public/00000000-0000-0000-0001-000000000001/22222222-2222-4222-8222-222222222222.pdf',
+      upload_source: 'citizen',
+      status: 'uploaded',
+      metadata: null,
+      uploaded_at: uploadedAt,
+      created_at: uploadedAt,
+      updated_at: uploadedAt,
+    };
+
+    mockApplicationRepo.findOne.mockResolvedValue({
+      id: TEST_APPLICATION_ID,
+      tenant_id: TEST_TENANT_ID,
+      service_id: '00000000-0000-0000-0002-000000000001',
+      consumer_id: TEST_CONSUMER_ID,
+    } as Application);
+    mockApplicationDocumentRepo.findOne.mockResolvedValue(null);
+    mockApplicationDocumentRepo.save.mockImplementation(async () => savedDocument as any);
+    mockApplicationDocumentRepo.find.mockResolvedValue([savedDocument as any]);
+    mockS3.buildDocumentKey.mockReturnValue(savedDocument.storage_key);
+    mockS3.putObject.mockResolvedValue(undefined);
+
+    const token = consumerToken(TEST_CONSUMER_ID);
+    const uploadResponse = await request(app.getHttpServer())
+      .post('/upload/document')
+      .set('Authorization', `Bearer ${token}`)
+      .field('applicationId', TEST_APPLICATION_ID)
+      .field('documentType', 'marksheet')
+      .attach('file', Buffer.from('%PDF-1.4 application upload'), 'marksheet.pdf');
+
+    expect(uploadResponse.status).toBe(HttpStatus.CREATED);
+    expect(uploadResponse.body.data.applicationDocumentId).toBe(savedDocument.id);
+    expect(mockApplicationDocumentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        application_id: TEST_APPLICATION_ID,
+        document_type: 'marksheet',
+        document_id: uploadResponse.body.data.documentId,
+      }),
+    );
+
+    const listResponse = await request(app.getHttpServer())
+      .get(`/upload/applications/${TEST_APPLICATION_ID}/documents`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(HttpStatus.OK);
+
+    expect(listResponse.body.data).toHaveLength(1);
+    expect(listResponse.body.data[0].documentType).toBe('marksheet');
+    expect(listResponse.body.data[0].documentId).toBe(savedDocument.document_id);
+
+    mockApplicationDocumentRepo.findOne.mockResolvedValue(savedDocument as any);
+    mockS3.getPresignedDownloadUrl.mockResolvedValue('https://storage.example/document');
+    const staffResponse = await request(app.getHttpServer())
+      .get(`/upload/document/${savedDocument.document_id}?presigned=true`)
+      .set('Authorization', `Bearer ${adminToken(TEST_TENANT_ID)}`)
+      .expect(HttpStatus.OK);
+
+    expect(staffResponse.body.data.url).toBe('https://storage.example/document');
+    expect(mockS3.getPresignedDownloadUrl).toHaveBeenCalledWith(savedDocument.storage_key);
   });
 });
 

@@ -14,6 +14,9 @@ export const API_ENDPOINTS = {
     registerConsumer: '/auth/register/consumer',
     loginTenant: '/auth/login/tenant',
     loginConsumer: '/auth/login/consumer',
+    issueCitizenOtp: '/auth/citizen/otp',
+    verifyCitizenOtp: '/auth/citizen/otp/verify',
+    staffSession: '/auth/staff/session',
     refresh: '/auth/refresh',
     logout: '/auth/logout',
     forgotPassword: '/auth/forgot-password',
@@ -21,17 +24,31 @@ export const API_ENDPOINTS = {
     resetPassword: '/auth/reset-password',
   },
 
+  tenant: {
+    onboarding: '/tenant/onboarding',
+  },
+
   // Consumer APIs
   consumer: {
     services: '/consumer/services',
     serviceById: (id: string) => `/consumer/services/${id}`,
+    serviceDraft: (id: string) => `/consumer/services/${id}/draft`,
     submitApplication: '/consumer/applications',
     myApplications: '/consumer/my-applications',
     applicationById: (id: string) => `/consumer/applications/${id}`,
+    applicationOutput: (id: string) => `/consumer/applications/${id}/output`,
     applicationTracking: (trackingNumber: string) => `/consumer/applications/track/${trackingNumber}`,
     updateDraft: (id: string) => `/consumer/applications/${id}`,
     // Profile
     profile: '/consumer/profile',
+    // Consent
+    consentRequest: '/consumer/consent/request',
+    consentHistory: '/consumer/consent/history',
+    consentActive: '/consumer/consent/active',
+    grantConsent: (id: string) => `/consumer/consent/${id}/grant`,
+    denyConsent: (id: string) => `/consumer/consent/${id}/deny`,
+    revokeConsent: (id: string) => `/consumer/consent/${id}/revoke`,
+    withdrawConsent: (id: string) => `/consumer/consent/${id}/withdraw`,
     // Notifications
     notifications: '/consumer/notifications',
     markNotificationRead: (id: string) => `/consumer/notifications/${id}/read`,
@@ -48,8 +65,20 @@ export const API_ENDPOINTS = {
   producer: {
     // Services
     services: '/producer/services',
+    serviceTemplates: '/producer/service-templates',
+    cloneServiceTemplate: (templateId: string) => `/producer/service-templates/${templateId}/clone`,
+    simulateService: (id: string) => `/producer/services/${id}/simulate`,
     serviceById: (id: string) => `/producer/services/${id}`,
     publishService: (id: string) => `/producer/services/${id}/publish`,
+    servicePublicationApprovals: '/producer/service-publication-approvals',
+    approveServicePublication: (id: string) => `/producer/services/${id}/approve-publication`,
+    redressQueue: '/producer/redress/queue',
+    assignGrievance: (id: string) => `/producer/redress/grievances/${id}/assign`,
+    resolveGrievance: (id: string) => `/producer/redress/grievances/${id}/resolve`,
+    assignAppeal: (id: string) => `/producer/redress/appeals/${id}/assign`,
+    decideAppeal: (id: string) => `/producer/redress/appeals/${id}/decision`,
+    closeFeedback: (id: string) => `/producer/redress/feedback/${id}/close`,
+    assignFeedback: (id: string) => `/producer/redress/feedback/${id}/assign`,
     unpublishService: (id: string) => `/producer/services/${id}/unpublish`,
     
     // Applications
@@ -96,6 +125,7 @@ export const API_ENDPOINTS = {
   upload: {
     document: '/upload/document',
     image: '/upload/image',
+    applicationDocuments: (applicationId: string) => `/upload/applications/${applicationId}/documents`,
   },
 } as const;
 

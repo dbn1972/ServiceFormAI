@@ -10,6 +10,7 @@ import { TenantService } from '../database/entities/tenant-service.entity';
 import { Application } from '../database/entities/application.entity';
 import { ConsumerUser } from '../database/entities/consumer-user.entity';
 import { AuditLog } from '../database/entities/audit-log.entity';
+import { OutboxEvent } from '../database/entities/outbox-event.entity';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isSynchronizeRequested = process.env.DB_SYNCHRONIZE === 'true';
@@ -45,7 +46,7 @@ if (isProduction && isSynchronizeRequested) {
     }),
     DatabaseModule,
     ScalabilityModule,
-    TypeOrmModule.forFeature([Tenant, TenantService, Application, ConsumerUser, AuditLog]),
+    TypeOrmModule.forFeature([Tenant, TenantService, Application, ConsumerUser, AuditLog, OutboxEvent]),
   ],
   providers: [QueueWorkerService, TokenCleanupService],
 })

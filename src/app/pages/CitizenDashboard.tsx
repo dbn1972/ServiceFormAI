@@ -13,6 +13,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { formatters } from '../utils/validation';
 import { consumerService } from '../services/api/index';
@@ -30,6 +31,7 @@ type DashboardApplication = {
 };
 
 export default function CitizenDashboard() {
+  const navigate = useNavigate();
   const { user, applications, notifications } = useApp();
   const {
     data: remoteApplications,
@@ -181,7 +183,11 @@ const liveApplications: DashboardApplication[] = (remoteApplications || []).map(
 
                       {application.status === 'deficiency' && (
                         <div className="mt-3 pt-3 border-t border-border">
-                          <button className="w-full py-2 bg-destructive/10 text-destructive rounded-lg font-medium hover:bg-destructive/20 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/applications/${application.id}/history`)}
+                            className="w-full py-2 bg-destructive/10 text-destructive rounded-lg font-medium hover:bg-destructive/20 text-sm"
+                          >
                             Complete Deficiency
                           </button>
                         </div>

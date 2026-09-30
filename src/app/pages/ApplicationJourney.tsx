@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -9,27 +9,47 @@ import {
   Shield,
 } from 'lucide-react';
 import { consumerService } from '../services/api/index';
+import { resolveVisibility, validate as validateWholeForm, validateField as validateSingleField } from '@serviceformai/validation-engine';
 import { useApp } from '../context/AppContext';
 import type { FormField, ServiceSchemaResponse, TenantService } from '../shared/types';
 
-type JourneyStep = 'intro' | 'documents' | 'form' | 'review';
+type JourneyStep = string;
 
-const stepOrder: JourneyStep[] = ['intro', 'documents', 'form', 'review'];
+type JourneySection = {
+  id: string;
+  title: string;
+  description?: string;
+  fieldIds: string[];
+};
 
-function getStepLabel(step: JourneyStep) {
-  switch (step) {
-    case 'intro':
-      return 'Service Intro';
-    case 'documents':
-      return 'Document Reuse';
-    case 'form':
-      return 'Application Form';
-    case 'review':
-      return 'Review & Submit';
+function getStepLabel(step: JourneyStep, sections: JourneySection[]) {
+  if (step === 'intro') {
+    return 'Service Intro';
   }
+
+  if (step === 'documents') {
+    return 'Document Reuse';
+  }
+
+  if (step === 'review') {
+    return 'Review & Submit';
+  }
+
+  const section = sections.find((item) => item.id === step);
+  return section?.title || 'Application Form';
 }
 
 function normalizeDocuments(service: TenantService) {
+  const manifestDocuments = service.manifest?.requiredDocuments;
+  if (Array.isArray(manifestDocuments) && manifestDocuments.length > 0) {
+    return manifestDocuments.map((doc) => ({
+      name: doc.name,
+      source: Array.isArray(doc.digilockerTypes) && doc.digilockerTypes.length > 0 ? 'DigiLocker' : null,
+      reusable: Array.isArray(doc.acceptedSources) ? doc.acceptedSources.includes('digilocker') : false,
+      required: Boolean(doc.required),
+    }));
+  }
+
   const docs = service.requiredDocuments || [];
   return docs.map((doc) => {
     if (typeof doc === 'string') {
@@ -37,6 +57,7 @@ function normalizeDocuments(service: TenantService) {
         name: doc,
         source: null as string | null,
         reusable: false,
+        required: true,
       };
     }
 
@@ -44,8 +65,61 @@ function normalizeDocuments(service: TenantService) {
       name: doc.name,
       source: doc.source || null,
       reusable: Boolean(doc.source),
+      required: Boolean(doc.required),
     };
   });
+}
+
+function getManifestFields(service: TenantService): FormField[] {
+  const manifestFields = service.manifest?.service?.formSchema?.fields;
+  if (!Array.isArray(manifestFields)) {
+    return [];
+  }
+
+  return manifestFields.map((field) => ({
+    id: String(field.id),
+    name: String(field.name || field.id),
+    type: (field.type as FormField['type']) || 'text',
+    label: String(field.label || field.name || field.id),
+    required: Boolean(field.required),
+    placeholder: typeof field.placeholder === 'string' ? field.placeholder : undefined,
+    helpText: typeof field.helpText === 'string' ? field.helpText : undefined,
+    options: Array.isArray(field.options)
+      ? field.options.map((option: any) => ({ label: String(option.label), value: String(option.value) }))
+      : undefined,
+  }));
+}
+
+function getJourneySections(service: TenantService | null, schema: ServiceSchemaResponse | null, fields: FormField[]): JourneySection[] {
+  const schemaSections = schema?.form_schema.sections;
+  if (Array.isArray(schemaSections) && schemaSections.length > 0) {
+    return schemaSections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      description: section.description,
+      fieldIds: section.fields,
+    }));
+  }
+
+  const manifestSections = service?.manifest?.service?.formSchema?.sections;
+  if (Array.isArray(manifestSections) && manifestSections.length > 0) {
+    return manifestSections.map((section: any) => ({
+      id: String(section.id),
+      title: String(section.title),
+      description: typeof section.description === 'string' ? section.description : undefined,
+      fieldIds: Array.isArray(section.fieldIds) ? section.fieldIds.map((item: any) => String(item)) : [],
+    }));
+  }
+
+  if (fields.length > 0) {
+    return [{
+      id: 'application-form',
+      title: 'Application Form',
+      fieldIds: fields.map((field) => field.id),
+    }];
+  }
+
+  return [];
 }
 
 function renderFieldValue(value: unknown) {
@@ -74,11 +148,17 @@ export default function ApplicationJourney() {
   const [service, setService] = useState<TenantService | null>(null);
   const [schema, setSchema] = useState<ServiceSchemaResponse | null>(null);
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [draftApplicationId, setDraftApplicationId] = useState<string | null>(null);
+  const [draftSaveStatus, setDraftSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [selectedDocs, setSelectedDocs] = useState<Record<string, boolean>>({});
+  const [uploadedDocuments, setUploadedDocuments] = useState<Record<string, { fileName: string; documentId: string }>>({});
+  const [uploadingDocument, setUploadingDocument] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastSavedDraftRef = useRef<string | null>(null);
+  const draftSaveSequenceRef = useRef(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -103,15 +183,34 @@ export default function ApplicationJourney() {
           return;
         }
 
+        let savedDraft: Awaited<ReturnType<typeof consumerService.getServiceDraft>> | null = null;
+        try {
+          savedDraft = await consumerService.getServiceDraft(serviceId);
+        } catch (draftError) {
+          const message = draftError instanceof Error ? draftError.message : '';
+          if (!message.includes('404')) throw draftError;
+        }
+
         const initialDocs = normalizeDocuments(serviceResponse).reduce<Record<string, boolean>>(
           (acc, doc) => {
-            if (doc.reusable) {
-              acc[doc.name] = true;
-            }
+            acc[doc.name] = false;
             return acc;
           },
           {}
         );
+
+        const restoredDocuments = savedDraft
+          ? await consumerService.getApplicationDocuments(savedDraft.application_id).catch(() => [])
+          : [];
+        const restoredSelectedDocs = { ...initialDocs };
+        const restoredUploads: Record<string, { fileName: string; documentId: string }> = {};
+        for (const document of restoredDocuments) {
+          restoredSelectedDocs[document.documentType] = true;
+          restoredUploads[document.documentType] = {
+            fileName: document.fileName,
+            documentId: document.documentId,
+          };
+        }
 
         const initialFormData = schemaResponse.form_schema.fields.reduce<Record<string, any>>(
           (acc, field) => {
@@ -131,8 +230,10 @@ export default function ApplicationJourney() {
 
         setService(serviceResponse);
         setSchema(schemaResponse);
-        setSelectedDocs(initialDocs);
-        setFormData(initialFormData);
+        setSelectedDocs(restoredSelectedDocs);
+        setUploadedDocuments(restoredUploads);
+        setFormData(savedDraft ? { ...initialFormData, ...savedDraft.form_data } : initialFormData);
+        setDraftApplicationId(savedDraft?.application_id ?? null);
       } catch (loadError: any) {
         if (!isMounted) {
           return;
@@ -153,13 +254,65 @@ export default function ApplicationJourney() {
     };
   }, [serviceId]);
 
+  useEffect(() => {
+    if (isLoading || !serviceId || !schema) return;
+    const payload = {
+      ...formData,
+      selectedDocuments: Object.entries(selectedDocs)
+        .filter(([, attached]) => attached)
+        .map(([name]) => name),
+    };
+    const serialized = JSON.stringify(payload);
+    if (lastSavedDraftRef.current === serialized) return;
+
+    let active = true;
+    const sequence = ++draftSaveSequenceRef.current;
+    const timer = window.setTimeout(async () => {
+      setDraftSaveStatus('saving');
+      try {
+        const saved = await consumerService.saveServiceDraft(serviceId, {
+          formData: payload,
+          applicationId: draftApplicationId ?? undefined,
+          schemaVersion: schema.schema_version,
+        });
+        if (!active || sequence !== draftSaveSequenceRef.current) return;
+        lastSavedDraftRef.current = serialized;
+        setDraftApplicationId(saved.application_id);
+        setDraftSaveStatus('saved');
+        setError(null);
+      } catch (saveError) {
+        if (!active || sequence !== draftSaveSequenceRef.current) return;
+        setDraftSaveStatus('error');
+        setError(saveError instanceof Error ? `Draft not saved: ${saveError.message}` : 'Draft not saved. Check your connection.');
+      }
+    }, 700);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [draftApplicationId, formData, isLoading, schema, selectedDocs, serviceId]);
+
   const documents = useMemo(
     () => (service ? normalizeDocuments(service) : []),
     [service]
   );
 
-  const fields = schema?.form_schema.fields || [];
+  const fields = schema?.form_schema.fields?.length
+    ? schema.form_schema.fields
+    : service
+      ? getManifestFields(service)
+      : [];
+  const manifestMappings = service?.manifest?.digilockerMappings || [];
+  const supportedLanguages = service?.manifest?.localization?.supportedLanguages || [];
+  const manifestServiceType = service?.manifest?.serviceType;
+  const sections = useMemo(() => getJourneySections(service, schema, fields), [service, schema, fields]);
+  const stepOrder = useMemo<JourneyStep[]>(() => ['intro', 'documents', ...sections.map((section) => section.id), 'review'], [sections]);
   const currentIndex = stepOrder.indexOf(step);
+  const activeSection = sections.find((section) => section.id === step) || null;
+  const activeFields = activeSection
+    ? fields.filter((field) => activeSection.fieldIds.includes(field.id))
+    : fields;
 
   function updateField(fieldId: string, value: any) {
     setFormData((prev) => ({ ...prev, [fieldId]: value }));
@@ -173,31 +326,53 @@ export default function ApplicationJourney() {
     });
   }
 
-  function toggleDocument(name: string) {
-    setSelectedDocs((prev) => ({
-      ...prev,
-      [name]: !prev[name],
-    }));
+  async function uploadApplicationDocument(name: string, file?: File) {
+    if (!serviceId || !file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Each document must be smaller than 10 MB.');
+      return;
+    }
+
+    setUploadingDocument(name);
+    setError(null);
+    try {
+      const selectedDocuments = Object.entries(selectedDocs)
+        .filter(([, attached]) => attached)
+        .map(([documentName]) => documentName);
+      const savedDraft = await consumerService.saveServiceDraft(serviceId, {
+        formData: { ...formData, selectedDocuments },
+        applicationId: draftApplicationId ?? undefined,
+        schemaVersion: schema?.schema_version ?? 1,
+      });
+      setDraftApplicationId(savedDraft.application_id);
+      const uploaded = await consumerService.uploadApplicationDocument(savedDraft.application_id, name, file);
+      setUploadedDocuments((prev) => ({
+        ...prev,
+        [name]: { fileName: uploaded.fileName, documentId: uploaded.documentId },
+      }));
+      setSelectedDocs((prev) => ({ ...prev, [name]: true }));
+      lastSavedDraftRef.current = null;
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Unable to upload the document.');
+    } finally {
+      setUploadingDocument(null);
+    }
   }
 
-  function validateForm() {
+  function validateForm(fieldIds?: string[]) {
     const nextErrors: Record<string, string> = {};
-
-    for (const field of fields) {
-      if (!field.required) {
-        continue;
+    if (!schema) return false;
+    if (!fieldIds) {
+      const validation = validateWholeForm(schema.form_schema as any, formData);
+      for (const [fieldId, fieldErrors] of Object.entries(validation.errors)) {
+        nextErrors[fieldId] = fieldErrors.map((item: any) => item.message).join(' ');
       }
-
-      const value = formData[field.id];
-      const isEmpty =
-        value === undefined ||
-        value === null ||
-        value === '' ||
-        (Array.isArray(value) && value.length === 0) ||
-        (field.type === 'checkbox' && value !== true);
-
-      if (isEmpty) {
-        nextErrors[field.id] = `${field.label} is required.`;
+    } else {
+      const visibility = resolveVisibility(schema.form_schema.fields as any, formData);
+      for (const field of fields.filter((item) => fieldIds.includes(item.id))) {
+        if (visibility.get(field.id) === false) continue;
+        const fieldErrors = validateSingleField(field as any, formData[field.id]);
+        if (fieldErrors.length) nextErrors[field.id] = fieldErrors.map((item: any) => item.message).join(' ');
       }
     }
 
@@ -206,8 +381,15 @@ export default function ApplicationJourney() {
   }
 
   function goNext() {
-    if (step === 'form' && !validateForm()) {
+    if (activeSection && !validateForm(activeSection.fieldIds)) {
       return;
+    }
+    if (step === 'documents') {
+      const missingDocuments = documents.filter((doc) => doc.required && !uploadedDocuments[doc.name]);
+      if (missingDocuments.length) {
+        setError(`Upload required evidence: ${missingDocuments.map((document) => document.name).join(', ')}`);
+        return;
+      }
     }
 
     const nextStep = stepOrder[currentIndex + 1];
@@ -232,7 +414,7 @@ export default function ApplicationJourney() {
     }
 
     if (!validateForm()) {
-      setStep('form');
+      setStep(sections[0]?.id ?? 'review');
       return;
     }
 
@@ -240,14 +422,22 @@ export default function ApplicationJourney() {
     setError(null);
 
     try {
+      const selectedDocuments = Object.entries(selectedDocs)
+        .filter(([, attached]) => attached)
+        .map(([name]) => name);
+      const finalFormData = { ...formData, selectedDocuments };
+      const savedDraft = await consumerService.saveServiceDraft(serviceId, {
+        formData: finalFormData,
+        applicationId: draftApplicationId ?? undefined,
+        schemaVersion: schema?.schema_version ?? 1,
+      });
+      setDraftApplicationId(savedDraft.application_id);
+
       const application = await consumerService.submitApplication({
         serviceId,
-        formData: {
-          ...formData,
-          selectedDocuments: Object.entries(selectedDocs)
-            .filter(([, attached]) => attached)
-            .map(([name]) => name),
-        },
+        applicationId: savedDraft.application_id,
+        schemaVersion: savedDraft.schema_version,
+        formData: finalFormData,
       });
 
       addApplication({
@@ -261,6 +451,7 @@ export default function ApplicationJourney() {
           .map(([name]) => ({ name })),
         formData,
       });
+      lastSavedDraftRef.current = null;
 
       navigate(`/applications/${application.id}/confirmation`, {
         state: {
@@ -345,7 +536,7 @@ export default function ApplicationJourney() {
     if (field.type === 'file') {
       return (
         <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
-          File upload is handled in the document module. Continue with the form and attach documents in the upload step.
+          Upload this evidence in the Documents step before submitting the application.
         </div>
       );
     }
@@ -392,7 +583,7 @@ export default function ApplicationJourney() {
                         {status === 'completed' ? <Check className="h-5 w-5" /> : index + 1}
                       </div>
                       <p className={`mt-2 text-center text-xs ${status === 'active' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>
-                        {getStepLabel(stepName)}
+                        {getStepLabel(stepName, sections)}
                       </p>
                     </div>
                     {index < stepOrder.length - 1 && (
@@ -425,6 +616,12 @@ export default function ApplicationJourney() {
                 </div>
               )}
 
+              {draftSaveStatus !== 'idle' && (
+                <p className={`mb-4 text-xs ${draftSaveStatus === 'error' ? 'text-destructive' : 'text-muted-foreground'}`} role="status">
+                  {draftSaveStatus === 'saving' ? 'Saving draft…' : draftSaveStatus === 'saved' ? 'Draft saved securely' : 'Draft save failed'}
+                </p>
+              )}
+
               {isLoading ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">
                   Loading application journey...
@@ -443,9 +640,22 @@ export default function ApplicationJourney() {
                           <li>• Provider: {service.tenant?.name || 'Government Department'}</li>
                           <li>• Estimated processing time: {service.slaDays ? `${service.slaDays} days` : 'Not specified'}</li>
                           <li>• Service fee: {typeof service.fees === 'number' ? (service.fees === 0 ? 'Free' : `Rs ${service.fees}`) : 'Not specified'}</li>
-                          <li>• Form fields to complete: {schema.form_schema.fields.length}</li>
+                          <li>• Form fields to complete: {fields.length}</li>
+                          {manifestServiceType && <li>• Service type: {manifestServiceType}</li>}
+                          {supportedLanguages.length > 0 && <li>• Languages supported: {supportedLanguages.join(', ')}</li>}
                         </ul>
                       </div>
+
+                      {manifestMappings.length > 0 && (
+                        <div className="rounded-xl border border-success/20 bg-success/5 p-5">
+                          <h3 className="mb-2 font-semibold">Prefill preview</h3>
+                          <div className="space-y-2 text-sm text-muted-foreground">
+                            {manifestMappings.map((mapping: any) => (
+                              <p key={mapping.fieldId}>• {mapping.fieldId} can be prefilled from {mapping.source}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="rounded-xl border border-success/20 bg-success/5 p-5">
                         <div className="flex gap-3">
@@ -473,13 +683,13 @@ export default function ApplicationJourney() {
                           return (
                             <div
                               key={doc.name}
-                              className={`rounded-xl border p-4 ${
-                                doc.reusable ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'
+                                className={`rounded-xl border p-4 ${
+                                attached ? 'border-success/30 bg-success/5' : 'border-border bg-card'
                               }`}
                             >
                               <div className="flex items-start gap-4">
-                                <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${doc.reusable ? 'bg-success/10' : 'bg-warning/10'}`}>
-                                  {doc.reusable ? (
+                                <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${attached ? 'bg-success/10' : 'bg-muted'}`}>
+                                  {attached ? (
                                     <FileText className="h-6 w-6 text-success" />
                                   ) : (
                                     <AlertCircle className="h-6 w-6 text-warning" />
@@ -487,25 +697,28 @@ export default function ApplicationJourney() {
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="mb-1 flex items-center gap-2">
-                                    <h4 className="font-semibold">{doc.name}</h4>
+                                    <h4 className="font-semibold">{doc.name}{doc.required && <span className="text-destructive"> *</span>}</h4>
                                     {doc.reusable && <Shield className="h-4 w-4 text-success" />}
                                   </div>
                                   <div className="space-y-1 text-sm text-muted-foreground">
-                                    {doc.source ? <p>Reusable from {doc.source}</p> : <p>Manual upload will still be needed later.</p>}
-                                    <p>{attached ? 'Selected for this application' : 'Not selected yet'}</p>
+                                    {doc.source ? <p>{doc.source} reuse is not linked yet; upload a copy to attach it.</p> : <p>Upload a PDF or image for this application.</p>}
+                                    {uploadedDocuments[doc.name] && <p>Attached: {uploadedDocuments[doc.name].fileName}</p>}
                                   </div>
                                   <div className="mt-3 flex gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleDocument(doc.name)}
-                                      className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                                        attached
-                                          ? 'bg-success text-success-foreground'
-                                          : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                                      }`}
-                                    >
-                                      {attached ? 'Attached' : 'Attach'}
-                                    </button>
+                                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                                      {uploadingDocument === doc.name ? 'Uploading…' : attached ? 'Replace file' : 'Upload file'}
+                                      <input
+                                        type="file"
+                                        accept=".pdf,.jpg,.jpeg,.png,.webp"
+                                        disabled={uploadingDocument !== null}
+                                        className="sr-only"
+                                        onChange={(event) => {
+                                          const file = event.target.files?.[0];
+                                          event.target.value = '';
+                                          void uploadApplicationDocument(doc.name, file);
+                                        }}
+                                      />
+                                    </label>
                                   </div>
                                 </div>
                               </div>
@@ -516,20 +729,27 @@ export default function ApplicationJourney() {
 
                       <div className="rounded-lg border border-info/20 bg-info/10 p-4">
                         <p className="text-sm text-muted-foreground">
-                          <strong className="text-foreground">Document privacy:</strong> selected reusable documents will be referenced in the submitted form payload. Full document upload workflow is the next module to complete.
+                          <strong className="text-foreground">Document privacy:</strong> files are uploaded to private storage and linked to this saved application draft.
                         </p>
                       </div>
                     </div>
                   )}
 
-                  {step === 'form' && (
+                  {activeSection && (
                     <div className="space-y-5">
+                      <div className="rounded-xl border border-border bg-muted/20 p-5">
+                        <h3 className="mb-2 font-semibold">{activeSection.title}</h3>
+                        {activeSection.description && (
+                          <p className="text-sm text-muted-foreground">{activeSection.description}</p>
+                        )}
+                      </div>
+
                       {fields.length === 0 ? (
                         <div className="rounded-xl border border-border bg-muted/20 p-5 text-sm text-muted-foreground">
                           This service does not expose form fields yet.
                         </div>
                       ) : (
-                        fields.map((field) => (
+                        activeFields.map((field) => (
                           <div key={field.id}>
                             <label htmlFor={field.id} className="mb-2 block text-sm font-medium">
                               {field.label} {field.required && <span className="text-destructive">*</span>}
@@ -573,6 +793,15 @@ export default function ApplicationJourney() {
                           ))}
                         </div>
                       </div>
+
+                      <div className="rounded-xl border border-border p-5">
+                        <h3 className="mb-4 font-semibold">Manifest summary</h3>
+                        <div className="space-y-2 text-sm text-muted-foreground">
+                          <p>Workflow stages: {service.manifest?.workflow?.stages?.length || service.workflowConfig?.stages?.length || 0}</p>
+                          <p>Reusable document mappings: {documents.filter((doc) => doc.reusable).length}</p>
+                          <p>Manifest version: {service.manifest?.manifestVersion || 'Not provided'}</p>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -585,7 +814,7 @@ export default function ApplicationJourney() {
                       {currentIndex === 0 ? 'Back to Service' : 'Back'}
                     </button>
 
-                    {step !== 'review' ? (
+                      {step !== 'review' ? (
                       <button
                         type="button"
                         onClick={goNext}

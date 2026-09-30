@@ -1,13 +1,35 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle, Clock, Plus, Loader2, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, Plus, Loader2, AlertTriangle, Scale } from 'lucide-react';
 import { consumerService, type GrievanceItem } from '../services/api/consumer.service';
+import type { Application } from '../shared/types';
+import { toast } from 'sonner';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  OPEN: { label: 'Open', color: 'text-warning bg-warning/10 border-warning/30' },
-  IN_PROGRESS: { label: 'In Progress', color: 'text-info bg-info/10 border-info/30' },
+  SUBMITTED: { label: 'Submitted', color: 'text-warning bg-warning/10 border-warning/30' },
+  ASSIGNED: { label: 'In Progress', color: 'text-info bg-info/10 border-info/30' },
+  REOPENED: { label: 'Reopened', color: 'text-warning bg-warning/10 border-warning/30' },
   RESOLVED: { label: 'Resolved', color: 'text-success bg-success/10 border-success/30' },
   CLOSED: { label: 'Closed', color: 'text-muted-foreground bg-muted border-border' },
+};
+
+const normalizeGrievanceStatus = (status: string) => {
+  switch (status.toLowerCase()) {
+    case 'open':
+    case 'submitted':
+      return 'SUBMITTED';
+    case 'in_progress':
+    case 'assigned':
+      return 'ASSIGNED';
+    case 'reopened':
+      return 'REOPENED';
+    case 'resolved':
+      return 'RESOLVED';
+    case 'closed':
+      return 'CLOSED';
+    default:
+      return status.toUpperCase();
+  }
 };
 
 export default function GrievanceJourney() {
@@ -16,15 +38,47 @@ export default function GrievanceJourney() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('ALL');
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [applicationId, setApplicationId] = useState('');
+  const [category, setCategory] = useState('service_delivery');
+  const [subject, setSubject] = useState('');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    consumerService.getGrievances()
-      .then((res) => setGrievances(res.data))
-      .catch(() => setError('Failed to load grievances'))
+    Promise.all([consumerService.getGrievances(), consumerService.getMyApplications({} as any, { page: 1, limit: 100 })])
+      .then(([grievanceResponse, applicationResponse]) => {
+        setGrievances(grievanceResponse.data);
+        setApplications(applicationResponse.data);
+      })
+      .catch(() => setError('Failed to load grievances and applications'))
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = filter === 'ALL' ? grievances : grievances.filter((g) => g.status === filter);
+  const submitGrievance = async () => {
+    if (!applicationId || subject.trim().length < 3 || description.trim().length < 10) {
+      toast.error('Select an application and provide a subject and description.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await consumerService.createGrievance({ applicationId, category, subject: subject.trim(), description: description.trim() });
+      toast.success('Grievance submitted');
+      setShowForm(false);
+      setSubject('');
+      setDescription('');
+      setApplicationId('');
+      const response = await consumerService.getGrievances();
+      setGrievances(response.data);
+    } catch (submitError) {
+      toast.error(submitError instanceof Error ? submitError.message : 'Unable to submit grievance');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const filtered = filter === 'ALL' ? grievances : grievances.filter((g) => normalizeGrievanceStatus(g.status) === filter);
 
   return (
     <div className="min-h-full bg-background p-8">
@@ -34,19 +88,59 @@ export default function GrievanceJourney() {
             <h1 className="text-3xl font-bold mb-2">My Grievances</h1>
             <p className="text-muted-foreground">Track and manage your filed grievances</p>
           </div>
-          <button
-            onClick={() => navigate('/grievances/new')}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            File New
-          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => navigate('/appeals')} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">
+              <Scale className="w-4 h-4" /> Appeals
+            </button>
+            <button
+              onClick={() => setShowForm((value) => !value)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              File New
+            </button>
+          </div>
         </div>
+
+        {showForm && (
+          <section className="mb-8 border border-border bg-card rounded-lg p-5 space-y-4" aria-labelledby="new-grievance-heading">
+            <h2 id="new-grievance-heading" className="text-lg font-semibold">File a grievance</h2>
+            <label className="block text-sm font-medium">
+              Application
+              <select value={applicationId} onChange={(event) => setApplicationId(event.target.value)} className="mt-1 block w-full rounded-md border border-border bg-input-background px-3 py-2">
+                <option value="">Select an application</option>
+                {applications.filter((application) => application.status !== 'DRAFT').map((application) => (
+                  <option key={application.id} value={application.id}>{application.trackingNumber} · {application.service?.name || application.formData?.serviceName || application.serviceId}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium">
+              Category
+              <select value={category} onChange={(event) => setCategory(event.target.value)} className="mt-1 block w-full rounded-md border border-border bg-input-background px-3 py-2">
+                <option value="service_delivery">Service delivery</option>
+                <option value="delay">Processing delay</option>
+                <option value="conduct">Staff conduct</option>
+                <option value="technical">Technical issue</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="block text-sm font-medium">Subject
+              <input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={255} className="mt-1 block w-full rounded-md border border-border bg-input-background px-3 py-2" />
+            </label>
+            <label className="block text-sm font-medium">Description
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={5000} rows={4} className="mt-1 block w-full rounded-md border border-border bg-input-background px-3 py-2" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-2 border border-border rounded-md text-sm">Cancel</button>
+              <button type="button" disabled={submitting} onClick={() => void submitGrievance()} className="px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50">{submitting ? 'Submitting…' : 'Submit grievance'}</button>
+            </div>
+          </section>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {Object.entries(STATUS_CONFIG).map(([status, cfg]) => {
-            const count = grievances.filter((g) => g.status === status).length;
+            const count = grievances.filter((g) => normalizeGrievanceStatus(g.status) === status).length;
             return (
               <div key={status} className="bg-card border border-border rounded-xl p-4">
                 <p className="text-2xl font-bold mb-1">{count}</p>
@@ -58,7 +152,7 @@ export default function GrievanceJourney() {
 
         {/* Filter tabs */}
         <div className="flex gap-2 mb-6 border-b border-border">
-          {['ALL', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map((s) => (
+          {['ALL', 'SUBMITTED', 'ASSIGNED', 'REOPENED', 'RESOLVED', 'CLOSED'].map((s) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -85,7 +179,7 @@ export default function GrievanceJourney() {
             <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground mb-4">No grievances found</p>
             <button
-              onClick={() => navigate('/grievances/new')}
+              onClick={() => setShowForm(true)}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90"
             >
               File a Grievance
@@ -94,7 +188,8 @@ export default function GrievanceJourney() {
         ) : (
           <div className="space-y-4">
             {filtered.map((g) => {
-              const cfg = STATUS_CONFIG[g.status] ?? { label: g.status, color: 'text-muted-foreground bg-muted border-border' };
+              const status = normalizeGrievanceStatus(g.status);
+              const cfg = STATUS_CONFIG[status] ?? { label: g.status, color: 'text-muted-foreground bg-muted border-border' };
               return (
                 <div
                   key={g.id}
@@ -120,7 +215,7 @@ export default function GrievanceJourney() {
                         )}
                       </div>
                     </div>
-                    {g.status === 'RESOLVED' && <CheckCircle className="w-5 h-5 text-success flex-shrink-0" />}
+                    {status === 'RESOLVED' && <CheckCircle className="w-5 h-5 text-success flex-shrink-0" />}
                   </div>
                 </div>
               );

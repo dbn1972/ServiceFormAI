@@ -44,8 +44,8 @@ describe('Modal', () => {
     const onClose = vi.fn();
     render(<Modal {...defaultProps} onClose={onClose} />);
 
-    const dialog = screen.getByRole('dialog');
-    fireEvent.keyDown(dialog, { key: 'Escape' });
+    const dialogContent = screen.getByRole('document');
+    fireEvent.keyDown(dialogContent, { key: 'Escape' });
 
     expect(onClose).toHaveBeenCalled();
   });
@@ -54,22 +54,16 @@ describe('Modal', () => {
     const onClose = vi.fn();
     render(<Modal {...defaultProps} onClose={onClose} closeOnOverlayClick={true} />);
 
-    const overlay = screen.getByRole('dialog').parentElement;
-    if (overlay) {
-      fireEvent.click(overlay);
-      expect(onClose).toHaveBeenCalled();
-    }
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(onClose).toHaveBeenCalled();
   });
 
   it('should not call onClose when overlay is clicked and closeOnOverlayClick is false', () => {
     const onClose = vi.fn();
     render(<Modal {...defaultProps} onClose={onClose} closeOnOverlayClick={false} />);
 
-    const overlay = screen.getByRole('dialog').parentElement;
-    if (overlay) {
-      fireEvent.click(overlay);
-      expect(onClose).not.toHaveBeenCalled();
-    }
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('should not show close button when showCloseButton is false', () => {
@@ -89,15 +83,15 @@ describe('Modal', () => {
     it('should have aria-modal="true"', () => {
       render(<Modal {...defaultProps} />);
 
-      const overlay = screen.getByRole('dialog').parentElement;
-      expect(overlay).toHaveAttribute('aria-modal', 'true');
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
     });
 
     it('should have aria-labelledby pointing to title', () => {
       render(<Modal {...defaultProps} />);
 
-      const overlay = screen.getByRole('dialog').parentElement;
-      expect(overlay).toHaveAttribute('aria-labelledby', 'modal-title');
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-labelledby', 'modal-title');
 
       const title = screen.getByText('Test Modal');
       expect(title).toHaveAttribute('id', 'modal-title');
@@ -106,8 +100,8 @@ describe('Modal', () => {
     it('should have aria-describedby when description is provided', () => {
       render(<Modal {...defaultProps} description="Test description" />);
 
-      const overlay = screen.getByRole('dialog').parentElement;
-      expect(overlay).toHaveAttribute('aria-describedby', 'modal-description');
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-describedby', 'modal-description');
 
       const description = screen.getByText('Test description');
       expect(description).toHaveAttribute('id', 'modal-description');
@@ -116,8 +110,8 @@ describe('Modal', () => {
     it('should not have aria-describedby when description is not provided', () => {
       render(<Modal {...defaultProps} />);
 
-      const overlay = screen.getByRole('dialog').parentElement;
-      expect(overlay).not.toHaveAttribute('aria-describedby');
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).not.toHaveAttribute('aria-describedby');
     });
   });
 

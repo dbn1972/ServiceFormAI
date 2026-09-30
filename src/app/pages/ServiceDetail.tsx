@@ -203,6 +203,8 @@ export default function ServiceDetail() {
       : `Rs ${service.fees}`
     : 'Not specified';
   const processingLabel = service.slaDays ? `${service.slaDays} days` : 'Not specified';
+  const manifestType = service.manifest?.serviceType || null;
+  const supportedLanguages = service.manifest?.localization?.supportedLanguages || [];
 
   return (
     <div className="min-h-full bg-background">
@@ -396,6 +398,18 @@ export default function ServiceDetail() {
                   <span className="text-muted-foreground">SLA</span>
                   <span className="font-medium">{processingLabel}</span>
                 </div>
+                {manifestType && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Manifest Type</span>
+                    <span className="font-medium capitalize">{manifestType}</span>
+                  </div>
+                )}
+                {supportedLanguages.length > 0 && (
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Languages</span>
+                    <span className="font-medium">{supportedLanguages.join(', ')}</span>
+                  </div>
+                )}
               </div>
             </div>
 

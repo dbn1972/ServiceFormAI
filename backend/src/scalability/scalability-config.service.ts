@@ -76,6 +76,12 @@ export class ScalabilityConfigService {
           staleWhileRevalidateMs: 5_000,
           negativeTtlMs: 5_000,
         },
+        'validation-results': {
+          enabled: true,
+          ttlMs: 60_000,
+          staleWhileRevalidateMs: 0,
+          negativeTtlMs: 0,
+        },
       },
     },
     queue: {
@@ -99,6 +105,8 @@ export class ScalabilityConfigService {
       'consumer.applications.cache': true,
       'producer.services.cache': true,
       'producer.applications.cache': true,
+      'producer.analytics.cache': true,
+      'validation.cache': true,
       // Queue-first write path: enabled by default when a queue provider is available.
       // Set to false to fall back to direct DB writes (e.g. emergency incident response).
       'queue.writePath.enabled': this.defaultQueueProvider !== 'disabled',

@@ -11,6 +11,19 @@ import { LoginRateLimit } from './entities/login-rate-limit.entity';
 import { RefreshTokenNonce } from './entities/refresh-token-nonce.entity';
 import { ConsentRecord } from './entities/consent-record.entity';
 import { IntegrationProvider } from './entities/integration-provider.entity';
+import { CustomComponentConfig } from './entities/custom-component-config.entity';
+import { PaymentRecord } from './entities/payment-record.entity';
+import { ApplicationDocument } from './entities/application-document.entity';
+import { ApplicationEvent } from './entities/application-event.entity';
+import { ApplicationDeficiency } from './entities/application-deficiency.entity';
+import { CitizenOtpChallenge } from './entities/citizen-otp-challenge.entity';
+import { TenantServiceRelease } from './entities/tenant-service-release.entity';
+import { OutboxEvent } from './entities/outbox-event.entity';
+import { ServicePublicationApproval } from './entities/service-publication-approval.entity';
+import { GrievanceCase } from './entities/grievance-case.entity';
+import { AppealCase } from './entities/appeal-case.entity';
+import { CitizenFeedback } from './entities/citizen-feedback.entity';
+import { ApplicationOutput } from './entities/application-output.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -31,6 +44,19 @@ export const AppDataSource = new DataSource({
     RefreshTokenNonce,
     ConsentRecord,
     IntegrationProvider,
+    CustomComponentConfig,
+    PaymentRecord,
+    ApplicationDocument,
+    ApplicationEvent,
+    ApplicationDeficiency,
+    CitizenOtpChallenge,
+    TenantServiceRelease,
+    OutboxEvent,
+    ServicePublicationApproval,
+    GrievanceCase,
+    AppealCase,
+    CitizenFeedback,
+    ApplicationOutput,
   ],
   migrations: [__dirname + '/../migrations/*{.ts,.js}'],
   synchronize: false,
