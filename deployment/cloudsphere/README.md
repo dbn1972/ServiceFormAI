@@ -28,4 +28,6 @@ Then open `http://localhost:3100`. This avoids changing the existing public Ngin
 
 The fixed OTP override is disabled by default. For isolated testing, enable it for one dedicated Indian mobile in E.164 format; the code is accepted only for that exact mobile and delivery is skipped only for that mobile. Never point it at a real user's account. All other numbers still require a production HTTPS OTP provider and API key. Tenant staff login requires a dedicated OIDC issuer/client; do not reuse another application's realm. The backend uses the EC2 IAM role for S3 when explicit AWS keys are unset, and the bucket must grant the instance role read/write access.
 
+For local preview-only staff testing, `ALLOW_LEGACY_TENANT_PASSWORD_AUTH=true` enables the existing tenant email/password endpoint. Keep it `false` in production; the normal staff path remains the dedicated Keycloak OIDC flow.
+
 For isolated OTP testing only, use `compose.test-otp.override.yaml` with `OTP_FIXED_TEST_MOBILE` set in the private environment file. This opt-in override leaves the default Compose configuration unchanged.
