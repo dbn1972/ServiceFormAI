@@ -180,7 +180,13 @@ export const CERTIFIED_SERVICE_TEMPLATES: CertifiedServiceTemplate[] = [
     fields: [
       { id: 'business_name', type: 'text', label: 'Business name', required: true },
       { id: 'business_address', type: 'textarea', label: 'Business premises address', required: true },
-      { id: 'business_activity', type: 'select', label: 'Business activity', required: true },
+      { id: 'business_activity', type: 'select', label: 'Business activity', required: true, options: [
+        { label: 'Retail shop', value: 'retail_shop' },
+        { label: 'Food service', value: 'food_service' },
+        { label: 'Manufacturing', value: 'manufacturing' },
+        { label: 'Professional services', value: 'professional_services' },
+        { label: 'Other commercial activity', value: 'other' },
+      ] },
     ],
     documents: ['Identity proof', 'Premises proof', 'Business registration evidence'],
   }),

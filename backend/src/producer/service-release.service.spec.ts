@@ -167,6 +167,21 @@ describe('ProducerService immutable releases', () => {
     }));
   });
 
+  it('certifies selectable business activities for the Trade Licence journey', () => {
+    const template = getCertifiedServiceTemplate('trade-license')!;
+    const fields = template.formSchema.fields as Array<Record<string, any>>;
+    const activity = fields.find((field) => field.id === 'business_activity');
+
+    expect(activity).toMatchObject({ type: 'select', required: true });
+    expect(activity?.options).toEqual([
+      { label: 'Retail shop', value: 'retail_shop' },
+      { label: 'Food service', value: 'food_service' },
+      { label: 'Manufacturing', value: 'manufacturing' },
+      { label: 'Professional services', value: 'professional_services' },
+      { label: 'Other commercial activity', value: 'other' },
+    ]);
+  });
+
   it('defines a complete human-reviewed Income Certificate intake and evidence workflow', () => {
     const template = getCertifiedServiceTemplate('income-cert')!;
     const fields = (template.formSchema as any).fields;
