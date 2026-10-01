@@ -481,6 +481,7 @@ describe('Producer integration — application status update', () => {
   let applicationOutputRepo: ReturnType<typeof makeRepo>;
   let auditLogRepo: ReturnType<typeof makeRepo>;
   let outboxRepo: ReturnType<typeof makeRepo>;
+  let serviceReleaseRepo: ReturnType<typeof makeRepo>;
 
   beforeEach(async () => {
     const setup = await createProducerApp();
@@ -490,6 +491,7 @@ describe('Producer integration — application status update', () => {
     applicationOutputRepo = setup.applicationOutputRepo;
     auditLogRepo = setup.auditLogRepo;
     outboxRepo = setup.outboxRepo;
+    serviceReleaseRepo = setup.serviceReleaseRepo;
   });
 
   afterEach(async () => { await app.close(); });
@@ -511,6 +513,69 @@ describe('Producer integration — application status update', () => {
       .get('/producer/applications')
       .set('Authorization', `Bearer ${token}`)
       .expect(HttpStatus.OK);
+  });
+
+  it('persists the configured next stage for an allowed officer action', async () => {
+    applicationRepo.findOne.mockResolvedValue(testApplication({
+      status: 'submitted',
+      current_stage: 'review',
+    }));
+    serviceReleaseRepo.findOne.mockResolvedValue({
+      snapshot: {
+        workflow_config: {
+          stages: [
+            { id: 'submitted', name: 'Submitted', assignedRole: 'system', actions: ['submit'], nextStages: ['review'] },
+            { id: 'review', name: 'Review', assignedRole: 'officer', actions: ['forward', 'raise_deficiency'], nextStages: ['approval', 'pending_documents'] },
+            { id: 'approval', name: 'Approval', assignedRole: 'approver', actions: ['approve', 'reject'], nextStages: ['approved', 'rejected'] },
+            { id: 'pending_documents', name: 'Pending documents', assignedRole: 'citizen', actions: ['submit_evidence'], nextStages: ['review'] },
+            { id: 'approved', name: 'Approved', assignedRole: 'system', actions: [], nextStages: [] },
+            { id: 'rejected', name: 'Rejected', assignedRole: 'system', actions: [], nextStages: [] },
+          ],
+        },
+      },
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/producer/applications/${TEST_APPLICATION_ID}/status`)
+      .set('Authorization', `Bearer ${officerToken(TEST_TENANT_ID)}`)
+      .send({ status: 'under_review', action: 'forward' })
+      .expect(HttpStatus.OK);
+
+    expect(applicationRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'under_review',
+      current_stage: 'approval',
+    }));
+    expect(applicationEventRepo.save).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ action: 'forward' }),
+    }));
+  });
+
+  it('rejects an officer action not configured for the current workflow stage', async () => {
+    applicationRepo.findOne.mockResolvedValue(testApplication({
+      status: 'submitted',
+      current_stage: 'review',
+    }));
+    serviceReleaseRepo.findOne.mockResolvedValue({
+      snapshot: {
+        workflow_config: {
+          stages: [
+            { id: 'review', name: 'Review', assignedRole: 'officer', actions: ['forward'], nextStages: ['approval'] },
+            { id: 'approval', name: 'Approval', assignedRole: 'approver', actions: ['approve'], nextStages: ['approved'] },
+            { id: 'approved', name: 'Approved', assignedRole: 'system', actions: [], nextStages: [] },
+          ],
+        },
+      },
+    });
+
+    await request(app.getHttpServer())
+      .patch(`/producer/applications/${TEST_APPLICATION_ID}/status`)
+      .set('Authorization', `Bearer ${officerToken(TEST_TENANT_ID)}`)
+      .send({ status: 'approved', action: 'approve' })
+      .expect(HttpStatus.FORBIDDEN);
+
+    expect(applicationRepo.save).not.toHaveBeenCalled();
+    expect(applicationEventRepo.save).not.toHaveBeenCalled();
+    expect(outboxRepo.save).not.toHaveBeenCalled();
   });
 
   it.each([

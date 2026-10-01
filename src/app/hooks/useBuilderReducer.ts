@@ -28,6 +28,13 @@ import {
 
 export function builderReducer(state: BuilderState, action: BuilderAction): BuilderState {
   switch (action.type) {
+    case 'UPDATE_METADATA': {
+      return {
+        ...state,
+        metadata: { ...state.metadata, ...action.updates },
+      };
+    }
+
     case 'ADD_FIELD': {
       const newField = createDefaultField(action.fieldType);
       const fields = [...state.fields];

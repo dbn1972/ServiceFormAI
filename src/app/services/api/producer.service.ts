@@ -277,7 +277,9 @@ export class ProducerService {
       API_ENDPOINTS.producer.updateApplicationStatus(id),
       {
         ...data,
-        status: data.status === 'APPROVED' ? 'approved' : data.status === 'REJECTED' ? 'rejected' : data.status,
+        status: data.status === 'PENDING_DOCUMENTS'
+          ? data.status
+          : data.status.toLowerCase(),
       }
     );
   }

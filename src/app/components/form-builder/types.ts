@@ -143,6 +143,7 @@ export interface BuilderMetadata {
   description: string;
   category: string;
   department?: string;
+  slaDays?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +172,7 @@ export interface BuilderState {
 // ---------------------------------------------------------------------------
 
 export type BuilderAction =
+  | { type: 'UPDATE_METADATA'; updates: Partial<BuilderMetadata> }
   | { type: 'ADD_FIELD'; fieldType: string; index: number }
   | { type: 'REMOVE_FIELD'; fieldId: string }
   | { type: 'REORDER_FIELD'; fromIndex: number; toIndex: number }
@@ -266,6 +268,7 @@ export function createBlankBuilderState(serviceId?: string): BuilderState {
       description: '',
       category: '',
       department: '',
+      slaDays: 30,
     },
     fields: [],
     sections: [],

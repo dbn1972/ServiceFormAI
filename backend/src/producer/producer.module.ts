@@ -7,10 +7,13 @@ import { DatabaseModule } from '../database/database.module';
 import { ValidationModule } from '../validation/validation.module';
 import { ScalabilityModule } from '../scalability/scalability.module';
 import { UploadModule } from '../upload/upload.module';
+import { AuthModule } from '../auth/auth.module';
+import { KeycloakStrategy } from '../auth/strategies/keycloak.strategy';
+import { TenantStaffAuthGuard } from '../auth/guards/tenant-staff-auth.guard';
 
 @Module({
-  imports: [DatabaseModule, ValidationModule, ScalabilityModule, UploadModule],
+  imports: [DatabaseModule, ValidationModule, ScalabilityModule, UploadModule, AuthModule],
   controllers: [ProducerController, RedressController],
-  providers: [ProducerService, RedressService],
+  providers: [ProducerService, RedressService, KeycloakStrategy, TenantStaffAuthGuard],
 })
 export class ProducerModule {}

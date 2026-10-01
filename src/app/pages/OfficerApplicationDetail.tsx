@@ -23,13 +23,25 @@ export default function OfficerApplicationDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleStatusUpdate = async (status: 'APPROVED' | 'REJECTED' | 'PENDING_DOCUMENTS') => {
+  const handleWorkflowAction = async (action: string) => {
     if (!id || !application) return;
     setActionLoading(true);
     try {
-      await producerService.updateApplicationStatus(id, { status, notes: note || undefined });
-      setApplication({ ...application, status });
-      setActionSuccess(`Application ${status.toLowerCase()} successfully`);
+      const status = action === 'approve'
+        ? 'APPROVED'
+        : action === 'reject'
+          ? 'REJECTED'
+          : action === 'raise_deficiency'
+            ? 'PENDING_DOCUMENTS'
+            : 'UNDER_REVIEW';
+      await producerService.updateApplicationStatus(id, {
+        status,
+        action,
+        notes: note || undefined,
+      });
+      const refreshed = await producerService.getApplicationById(id);
+      setApplication(refreshed);
+      setActionSuccess(`Workflow action "${action.replace(/_/g, ' ')}" completed`);
       setTimeout(() => setActionSuccess(null), 3000);
     } catch (err: any) {
       setError(err?.message ?? 'Action failed');
@@ -62,11 +74,28 @@ export default function OfficerApplicationDetail() {
   }
 
   const formData = application.formData ?? application.form_data ?? {};
+  const eligibilityResult = application.eligibility_result ?? application.eligibilityResult;
   const trackingNumber = application.trackingNumber ?? application.tracking_number ?? id;
   const status = application.status ?? 'SUBMITTED';
   const history = application.status_history ?? application.statusHistory ?? [];
   const deficiencies = application.deficiencies ?? [];
   const canMakeFinalDecision = user?.role === 'admin' || user?.role === 'approver';
+  const workflowStages = application.workflow_config?.stages ?? application.workflowConfig?.stages ?? [];
+  const stageKey = (value: string) => value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const currentWorkflowStage = workflowStages.find((stage: any) =>
+    stageKey(stage.id || '') === stageKey(application.current_stage || '')
+      || stageKey(stage.name || '') === stageKey(application.current_stage || ''),
+  );
+  const availableActions: string[] = currentWorkflowStage?.actions ?? [];
+  const actionLabels: Record<string, string> = {
+    forward: 'Forward to next stage',
+    verify_documents: 'Mark documents verified',
+    record_verification: 'Record field verification',
+    recommend: 'Recommend for decision',
+    approve: 'Approve application',
+    raise_deficiency: 'Raise deficiency',
+    reject: 'Reject application',
+  };
 
   return (
     <div className="min-h-full bg-muted/30">
@@ -124,6 +153,34 @@ export default function OfficerApplicationDetail() {
 
           {/* Form Data */}
           <div className="p-6 space-y-6">
+            {eligibilityResult && (
+              <section className="bg-card border border-border rounded-xl p-6" aria-labelledby="eligibility-review-title">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 id="eligibility-review-title" className="font-semibold">Eligibility checks</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Preliminary result: {String(eligibilityResult.outcome || 'review_required').replace(/_/g, ' ')}
+                    </p>
+                  </div>
+                  <span className="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
+                    Human decision required
+                  </span>
+                </div>
+                {Array.isArray(eligibilityResult.results) && eligibilityResult.results.length > 0 && (
+                  <ul className="mt-4 space-y-2">
+                    {eligibilityResult.results.map((result: any, index: number) => (
+                      <li key={result.ruleId || index} className="flex items-start justify-between gap-4 border-t border-border pt-2 text-sm">
+                        <span>{result.explanation || 'This condition requires officer review.'}</span>
+                        <span className="shrink-0 text-xs font-medium capitalize text-muted-foreground">
+                          {String(result.verdict || 'review').replace(/_/g, ' ')}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
+
             <div className="bg-card border border-border rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
@@ -182,30 +239,38 @@ export default function OfficerApplicationDetail() {
           <div className="border-b border-border p-6">
             <h3 className="font-semibold mb-4">Quick Actions</h3>
             <div className="space-y-3">
-              {canMakeFinalDecision && <button
-                disabled={actionLoading || status.toUpperCase() === 'APPROVED'}
-                onClick={() => handleStatusUpdate('APPROVED')}
-                className="w-full py-3 bg-success text-success-foreground rounded-lg font-medium hover:bg-success/90 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
-                Approve Application
-              </button>}
-              <button
-                disabled={actionLoading}
-                onClick={() => handleStatusUpdate('PENDING_DOCUMENTS')}
-                className="w-full py-3 bg-warning text-warning-foreground rounded-lg font-medium hover:bg-warning/90 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-5 h-5" />}
-                Raise Deficiency
-              </button>
-              {canMakeFinalDecision && <button
-                disabled={actionLoading || status === 'REJECTED'}
-                onClick={() => handleStatusUpdate('REJECTED')}
-                className="w-full py-3 bg-destructive text-destructive-foreground rounded-lg font-medium hover:bg-destructive/90 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-5 h-5" />}
-                Reject Application
-              </button>}
+              {availableActions
+                .filter((action) => !['approve', 'reject'].includes(action) || canMakeFinalDecision)
+                .map((action) => (
+                  <button
+                    key={action}
+                    disabled={actionLoading}
+                    onClick={() => handleWorkflowAction(action)}
+                    className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-50 ${
+                      action === 'approve'
+                        ? 'bg-success text-success-foreground hover:bg-success/90'
+                        : action === 'reject'
+                          ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                          : action === 'raise_deficiency'
+                            ? 'bg-warning text-warning-foreground hover:bg-warning/90'
+                            : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    }`}
+                  >
+                    {actionLoading
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : action === 'approve'
+                        ? <CheckCircle className="w-5 h-5" />
+                        : action === 'reject'
+                          ? <XCircle className="w-5 h-5" />
+                          : action === 'raise_deficiency'
+                            ? <AlertTriangle className="w-5 h-5" />
+                            : <CheckCircle className="w-5 h-5" />}
+                    {actionLabels[action] ?? action.replace(/_/g, ' ')}
+                  </button>
+                ))}
+              {availableActions.length === 0 && (
+                <p className="text-sm text-muted-foreground">No staff actions are configured for this stage.</p>
+              )}
             </div>
           </div>
 

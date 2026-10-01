@@ -30,6 +30,13 @@ export interface ManifestFormSchema {
     description?: string;
     fieldIds: string[];
   }>;
+  crossFieldRules?: Array<{
+    type: string;
+    fields: string[];
+    targetField?: string;
+    targetValue?: unknown;
+    message?: string;
+  }>;
 }
 
 export interface ManifestWorkflowStage {
@@ -85,7 +92,7 @@ export interface ServiceManifest {
     editable?: boolean;
   }>;
   eligibility?: {
-    mode?: 'rule-based' | 'hybrid';
+    mode?: 'rule-based' | 'hybrid' | 'human_review';
     recommendationSignals?: string[];
     rules?: Array<{
       field: string;

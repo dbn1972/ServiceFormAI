@@ -64,6 +64,17 @@ export function exportSchema(state: BuilderState): ServiceFormSchema {
       targetAudience: 'citizens',
     },
     fields,
+    sections: state.sections.map((section) => ({
+      id: section.id,
+      title: section.title,
+      description: section.description,
+      fieldIds: [...section.fieldIds],
+    })),
+    crossFieldRules: state.crossFieldRules.map((rule) => ({ ...rule })),
+    layout: {
+      columns: state.formSettings.columns,
+      gap: state.formSettings.gap,
+    },
     documents: [],
     endpoints: {
       submit: {

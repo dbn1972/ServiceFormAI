@@ -13,6 +13,9 @@ Start or update the stack from the project root:
 
 ```sh
 docker compose -p serviceformai-cloudsphere --env-file deployment/cloudsphere/.env.cloudsphere -f deployment/cloudsphere/compose.yaml up --build -d --wait
+Citizen OTP login remains unavailable until a production HTTPS OTP provider and API key are configured. Tenant staff login requires a dedicated OIDC issuer/client; do not reuse another application's realm. The backend uses the EC2 IAM role for S3 when explicit AWS keys are unset, and the bucket must grant the instance role read/write access. The queue worker is a separate service and must be included for durable queued application writes.
+
+The optional `compose.keycloak.override.yaml` adds a separate ServiceFormAI realm provider on the existing host's Keycloak image, using a dedicated `serviceformai_keycloak` PostgreSQL schema and loopback-only admin port. Install `keycloak-nginx.conf` for its TLS hostname, set unique admin credentials in the mode-0600 private env file, then create the `serviceformai` realm, `serviceformai-web` public client, audience mapper, and tenant memberships before enabling staff sign-in. This overlay does not edit or reuse the Proctira realm.
 ```
 
 Access it locally on the server at `http://127.0.0.1:3100`. To view it from a workstation, create an SSH tunnel:

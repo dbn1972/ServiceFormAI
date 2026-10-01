@@ -6,6 +6,7 @@ import { clearPendingOnboardingIdentity } from '../utils/onboarding';
 // Types
 export interface User {
   id: string;
+  tenantId?: string;
   name: string;
   email: string;
   mobile: string;
@@ -80,6 +81,7 @@ const normalizeUser = (storedUser: any): User | null => {
 
   return {
     id: storedUser.id || 'unknown',
+    tenantId: typeof storedUser.tenantId === 'string' ? storedUser.tenantId : undefined,
     name,
     email: storedUser.email || '',
     mobile: storedUser.mobile || storedUser.phone || '',

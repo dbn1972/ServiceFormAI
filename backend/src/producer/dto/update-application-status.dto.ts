@@ -6,6 +6,10 @@ export class UpdateApplicationStatusDto {
 
   @IsString()
   @IsOptional()
+  action?: string;
+
+  @IsString()
+  @IsOptional()
   stage?: string;
 
   @IsString()

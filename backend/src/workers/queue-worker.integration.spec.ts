@@ -192,6 +192,13 @@ describe('QueueWorkerService — application.persist', () => {
       consumerId: TEST_CONSUMER_ID,
       consumerSource: 'direct',
       formData: { full_name: 'Test Citizen' },
+      eligibilityResult: {
+        version: 1,
+        mode: 'human_review',
+        outcome: 'review_required',
+        requiresHumanDecision: true,
+        results: [],
+      },
       status: 'submitted',
       currentStage: 'Submitted',
       trackingNumber: 'TRK-2026-000001',
@@ -199,6 +206,12 @@ describe('QueueWorkerService — application.persist', () => {
     });
 
     expect(applicationRepo.save).toHaveBeenCalled();
+    expect(applicationRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      eligibility_result: expect.objectContaining({
+        outcome: 'review_required',
+        requiresHumanDecision: true,
+      }),
+    }));
   });
 
   it('skips write when application already exists (idempotent)', async () => {

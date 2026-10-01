@@ -22,7 +22,7 @@ import type {
 } from '../../shared/types';
 
 interface ConsumerServicesResponse {
-  services: Array<{
+  data: Array<{
     id: string;
     tenant_id: string;
     tenant_name?: string;
@@ -32,7 +32,9 @@ interface ConsumerServicesResponse {
     sla_days?: number;
     fees?: number;
   }>;
-  count: number;
+  total: number;
+  page: number;
+  limit: number;
 }
 
 interface ConsumerApplicationsResponse {
@@ -99,7 +101,7 @@ interface ConsumerServiceDetailResponse {
 
 export class ConsumerService {
   private normalizeService(
-    service: ConsumerServicesResponse['services'][number] | ConsumerServiceDetailResponse
+    service: ConsumerServicesResponse['data'][number] | ConsumerServiceDetailResponse
   ): TenantService {
     const detail = service as ConsumerServiceDetailResponse;
     return {
@@ -205,10 +207,10 @@ export class ConsumerService {
     filters?: ServiceFilters,
     pagination?: PaginationParams
   ): Promise<PaginatedResponse<TenantService>> {
-    const params = {
-      ...filters,
-      ...pagination,
-    };
+    const params = Object.fromEntries(
+      Object.entries({ ...filters, ...pagination })
+        .filter(([, value]) => value !== undefined && value !== null),
+    );
 
     const response = await apiService.get<ConsumerServicesResponse>(
       API_ENDPOINTS.consumer.services,
@@ -216,11 +218,11 @@ export class ConsumerService {
     );
 
     return {
-      data: response.services.map((service) => this.normalizeService(service)),
-      total: response.count,
-      page: pagination?.page || 1,
-      limit: pagination?.limit || response.count || 0,
-      totalPages: 1,
+      data: response.data.map((service) => this.normalizeService(service)),
+      total: response.total,
+      page: response.page,
+      limit: response.limit,
+      totalPages: response.limit > 0 ? Math.ceil(response.total / response.limit) : 0,
     };
   }
 

@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import type { EligibilityEvaluationResult } from '../../validation/eligibility-rules';
 
 @Entity('applications')
 @Index('idx_applications_tenant_status', ['tenant_id', 'status'])
@@ -32,6 +33,9 @@ export class Application {
 
   @Column({ type: 'jsonb' })
   form_data: any;
+
+  @Column({ type: 'jsonb', nullable: true })
+  eligibility_result: EligibilityEvaluationResult | null;
 
   @Column({ type: 'varchar', length: 50 })
   status: string;

@@ -1,0 +1,13 @@
+{
+  "name": "serviceformai-api-audience",
+  "protocol": "openid-connect",
+  "protocolMapper": "oidc-audience-mapper",
+  "consentRequired": false,
+  "config": {
+    "included.client.audience": "serviceformai-api",
+    "included.custom.audience": "",
+    "id.token.claim": "false",
+    "access.token.claim": "true",
+    "userinfo.token.claim": "false"
+  }
+}

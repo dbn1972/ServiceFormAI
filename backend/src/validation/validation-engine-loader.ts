@@ -7,6 +7,7 @@
  */
 
 import * as path from 'path';
+import { existsSync } from 'fs';
 
 export interface ValidationResult {
   valid: boolean;
@@ -25,17 +26,14 @@ function loadModule(): any {
     return cachedModule;
   }
 
-  const modulePath = path.resolve(
-    __dirname,
-    '..',
-    '..',
-    '..',
-    'packages',
-    'validation-engine',
-    'dist',
-    'cjs',
-    'index.js',
-  );
+  const modulePaths = [
+    path.resolve(__dirname, '..', '..', 'packages', 'validation-engine', 'dist', 'cjs', 'index.js'),
+    path.resolve(__dirname, '..', '..', '..', 'packages', 'validation-engine', 'dist', 'cjs', 'index.js'),
+  ];
+  const modulePath = modulePaths.find(existsSync);
+  if (!modulePath) {
+    throw new Error(`Validation engine CJS build not found. Searched: ${modulePaths.join(', ')}`);
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   cachedModule = require(modulePath);

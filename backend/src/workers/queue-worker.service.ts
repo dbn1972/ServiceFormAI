@@ -172,6 +172,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
           consumer_id: String(payload.consumerId),
           consumer_source: String(payload.consumerSource || 'web'),
           form_data: payload.formData,
+          eligibility_result: payload.eligibilityResult as Record<string, unknown> | null ?? null,
           status: String(payload.status || 'submitted'),
           current_stage: String(payload.currentStage || 'Submitted'),
           tracking_number: String(payload.trackingNumber),

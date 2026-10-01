@@ -21,6 +21,7 @@ import { CERTIFIED_SERVICE_TEMPLATES, getCertifiedServiceTemplate } from './serv
 import { ServicePublicationApproval } from '../database/entities/service-publication-approval.entity';
 import { ApplicationOutput } from '../database/entities/application-output.entity';
 import { S3StorageService } from '../upload/s3-storage.service';
+import { resolveWorkflowTransition, statusForWorkflowAction, WorkflowRuntimeStage } from './workflow-runtime';
 
 const ALLOWED_APPLICATION_TRANSITIONS: Record<string, string[]> = {
   submitted: ['under_review', 'PENDING_DOCUMENTS', 'rejected'],
@@ -292,7 +293,13 @@ export class ProducerService {
       { id: 'runtime-workflow-matches-manifest', passed: Array.isArray(runtimeWorkflowStages) && this.stableJson(runtimeWorkflowStages) === this.stableJson(workflowStages), details: { runtimeStageCount: runtimeWorkflowStages?.length ?? 0, manifestStageCount: workflowStages.length } },
       { id: 'runtime-documents-match-manifest', passed: this.stableJson(service.required_documents ?? []) === this.stableJson((service.manifest as any)?.requiredDocuments ?? []), details: { documentsMatch: this.stableJson(service.required_documents ?? []) === this.stableJson((service.manifest as any)?.requiredDocuments ?? []) } },
       { id: 'valid-submission-fixture', passed: positiveMissing.length === 0 && positiveFieldErrors.length === 0, details: { missingFields: positiveMissing, validationErrors: positiveFieldErrors } },
-      { id: 'missing-required-field-fixture', passed: Boolean(missingFieldId) && negativeMissing.includes(missingFieldId) && negativeFieldErrors.length > 0, details: { expectedField: missingFieldId, missingFields: negativeMissing, validationErrors: negativeFieldErrors } },
+      {
+        id: 'missing-required-field-fixture',
+        passed: requiredFields.length === 0 || (Boolean(missingFieldId) && negativeMissing.includes(missingFieldId) && negativeFieldErrors.length > 0),
+        details: requiredFields.length === 0
+          ? { notApplicable: true, reason: 'The service form defines no required fields.' }
+          : { expectedField: missingFieldId, missingFields: negativeMissing, validationErrors: negativeFieldErrors },
+      },
     ];
 
     return {
@@ -682,9 +689,25 @@ export class ProducerService {
             order: { created_at: 'DESC' },
           }),
         ]);
+        const releaseRepository = typeof (this.dataSource as any)?.getRepository === 'function'
+          ? this.dataSource.getRepository(TenantServiceRelease)
+          : null;
+        const release = application.service_release_id && releaseRepository
+          ? await releaseRepository.findOne({
+              where: {
+                id: application.service_release_id,
+                service_id: application.service_id,
+                tenant_id: tenantId,
+              },
+            })
+          : null;
+        const currentService = release ? null : await this.tenantServiceRepository.findOne({
+          where: { id: application.service_id, tenant_id: tenantId, archived: false },
+        });
 
         return {
           ...application,
+          workflow_config: release?.snapshot.workflow_config ?? currentService?.workflow_config ?? null,
           status_history: statusHistory,
           deficiencies,
         };
@@ -700,6 +723,7 @@ export class ProducerService {
     notes?: string,
     deficiencyDueAt?: string,
     actor?: { id: string; role: string },
+    action?: string,
   ) {
     const transition = await this.dataSource.transaction(async (manager) => {
       const applications = manager.getRepository(Application);
@@ -714,8 +738,43 @@ export class ProducerService {
       });
       if (!application) throw new NotFoundException('Application not found');
 
-      const allowedTargets = ALLOWED_APPLICATION_TRANSITIONS[application.status] ?? [];
-      if (!allowedTargets.includes(status)) {
+      const release = application.service_release_id
+        ? await manager.getRepository(TenantServiceRelease).findOne({
+            where: {
+              id: application.service_release_id,
+              service_id: application.service_id,
+              tenant_id: tenantId,
+            },
+          })
+        : null;
+      const workflowConfig = release?.snapshot.workflow_config as { stages?: WorkflowRuntimeStage[] } | undefined;
+      let nextStage = stage ?? application.current_stage ?? undefined;
+      if (workflowConfig?.stages?.length) {
+        if (!action) {
+          throw new BadRequestException('A configured workflow action is required for this application.');
+        }
+        const resolution = resolveWorkflowTransition(
+          workflowConfig.stages,
+          application.current_stage ?? '',
+          action,
+          actor?.role ?? '',
+          stage,
+        );
+        if ('reason' in resolution) throw new ForbiddenException(resolution.reason);
+        const expectedStatus = statusForWorkflowAction(action, application.status);
+        if (!expectedStatus || expectedStatus.toLowerCase() !== status.toLowerCase()) {
+          throw new BadRequestException(`Status does not match workflow action "${action}"`);
+        }
+        nextStage = resolution.targetStage.id;
+      }
+
+      const allowedTargets = ALLOWED_APPLICATION_TRANSITIONS[application.status]
+        ?? ALLOWED_APPLICATION_TRANSITIONS[application.status.toLowerCase()]
+        ?? [];
+      const sameStatusStageAdvance = application.status.toLowerCase() === status.toLowerCase()
+        && Boolean(nextStage)
+        && nextStage !== application.current_stage;
+      if (!allowedTargets.includes(status) && !sameStatusStageAdvance) {
         throw new BadRequestException(`Invalid application transition: ${application.status} -> ${status}`);
       }
       if (['approved', 'rejected', 'APPROVED', 'REJECTED'].includes(status) && !['admin', 'approver'].includes(actor?.role ?? '')) {
@@ -724,7 +783,7 @@ export class ProducerService {
 
       const previousStatus = application.status;
       application.status = status;
-      if (stage) application.current_stage = stage;
+      if (nextStage) application.current_stage = nextStage;
       await applications.save(application);
 
       if (status === 'approved') {
@@ -770,7 +829,7 @@ export class ProducerService {
         stage: application.current_stage,
         title: status === 'PENDING_DOCUMENTS' ? 'Deficiency raised' : 'Application status updated',
         notes: notes ?? null,
-        metadata: { actorId: actor?.id ?? null, actorRole: actor?.role ?? 'officer' },
+        metadata: { actorId: actor?.id ?? null, actorRole: actor?.role ?? 'officer', action: action ?? null },
       }));
 
       if (status === 'PENDING_DOCUMENTS') {
@@ -810,7 +869,7 @@ export class ProducerService {
         tenant_id: tenantId,
         resource_type: 'application',
         resource_id: application.id,
-        metadata: { fromStatus: previousStatus, toStatus: status, stage: application.current_stage },
+        metadata: { fromStatus: previousStatus, toStatus: status, stage: application.current_stage, action: action ?? null },
         success: true,
       }));
 
@@ -821,6 +880,7 @@ export class ProducerService {
         status,
         currentStage: application.current_stage,
         notes: notes ?? null,
+        action: action ?? null,
       };
       await outbox.save(outbox.create({
         event_type: 'application.status-updated',

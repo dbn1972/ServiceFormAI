@@ -43,6 +43,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@serviceformai/form-engine-react': path.resolve(__dirname, './packages/form-engine-react/src/index.ts'),
+      '@serviceformai/service-manifest': path.resolve(__dirname, './packages/service-manifest/src/index.ts'),
       '@serviceformai/form-engine-core': path.resolve(__dirname, './packages/form-engine-core/src/index.ts'),
       '@serviceformai/validation-engine': path.resolve(__dirname, './packages/validation-engine/src/index.ts'),
     },

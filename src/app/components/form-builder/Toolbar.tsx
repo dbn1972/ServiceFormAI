@@ -15,6 +15,7 @@ import {
   Download,
   Upload,
   Columns2,
+  Play,
 } from 'lucide-react';
 import type { SpacingToken } from './types';
 
@@ -29,6 +30,9 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
+  onSimulate?: () => void;
+  canSimulate?: boolean;
+  simulationLoading?: boolean;
   onPublish: () => void;
   onImport: (json: string) => void;
   onExport: () => void;
@@ -52,6 +56,9 @@ export default function Toolbar({
   onUndo,
   onRedo,
   onSave,
+  onSimulate,
+  canSimulate = false,
+  simulationLoading = false,
   onPublish,
   onImport,
   onExport,
@@ -189,6 +196,18 @@ export default function Toolbar({
 
       {/* Save / Publish */}
       <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onSimulate}
+          disabled={!onSimulate || !canSimulate || simulationLoading || isDirty}
+          aria-label="Simulate service"
+          title="Run service validation and sample submissions"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded
+            hover:bg-accent disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+        >
+          <Play className="w-4 h-4" />
+          {simulationLoading ? 'Simulating…' : 'Simulate'}
+        </button>
         <button
           type="button"
           onClick={onSave}

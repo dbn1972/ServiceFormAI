@@ -7,19 +7,21 @@
  */
 
 import { useEffect, useCallback, useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { FileText } from 'lucide-react';
 import type {
   BuilderState,
   BuilderCrossFieldRule,
+  BuilderMetadata,
   FormSettings,
   FormTemplate,
 } from './types';
 import { createBlankBuilderState } from './types';
 import { BuilderProvider } from './BuilderContext';
 import { useBuilderReducer } from '../../hooks/useBuilderReducer';
-import { exportSchema, exportSchemaCanonical } from '../../utils/schemaExporter';
+import { exportSchemaCanonical } from '../../utils/schemaExporter';
 import { importSchema, isImportError } from '../../utils/schemaImporter';
 import {
   autoSaveSave,
@@ -27,6 +29,8 @@ import {
   autoSaveClear,
 } from '../../utils/autoSaveManager';
 import { FORM_TEMPLATES } from '../../utils/formTemplates';
+import { buildServiceDefinition } from '../../utils/builderServiceDefinition';
+import { producerService } from '../../services/api/producer.service';
 import FieldPalette from './FieldPalette';
 import Canvas from './Canvas';
 import PropertyPanel from './PropertyPanel';
@@ -152,6 +156,9 @@ export default function FormBuilder({
   tenantId,
   initialSchema,
 }: FormBuilderProps) {
+  const [, setSearchParams] = useSearchParams();
+  const [savedServiceId, setSavedServiceId] = useState(serviceId ?? null);
+
   // Determine initial state
   const initialState = useMemo(() => {
     if (initialSchema) {
@@ -175,11 +182,11 @@ export default function FormBuilder({
     canUndo,
     canRedo,
     isDirty,
-    resetDirty,
   } = useBuilderReducer(initialState);
 
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
+  const [simulationLoading, setSimulationLoading] = useState(false);
   const [lastAutoSave, setLastAutoSave] = useState<number | null>(null);
 
   const selectedField = useMemo(
@@ -187,7 +194,7 @@ export default function FormBuilder({
     [builderState.fields, selectedFieldId]
   );
 
-  const effectiveServiceId = serviceId || builderState.metadata.serviceId || 'new';
+  const effectiveServiceId = serviceId || savedServiceId || builderState.metadata.serviceId || 'new';
 
   // ---------------------------------------------------------------------------
   // Auto-save recovery on mount
@@ -307,35 +314,74 @@ export default function FormBuilder({
   const handleSave = useCallback(async () => {
     setSaveStatus('saving');
     try {
-      // Export schema for validation
-      exportSchema(builderState);
+      const definition = buildServiceDefinition(builderState);
+      const currentServiceId = serviceId || savedServiceId || builderState.metadata.serviceId;
+      const savedService = currentServiceId
+        ? await producerService.updateService(currentServiceId, definition)
+        : await producerService.createService(definition);
+      const persistedServiceId = savedService.id;
+      if (!persistedServiceId) {
+        throw new Error('The API did not return a service ID.');
+      }
 
-      // In a real app, we'd call the API here:
-      // const url = serviceId
-      //   ? `/api/producer/services/${serviceId}`
-      //   : '/api/producer/services';
-      // const method = serviceId ? 'PUT' : 'POST';
-      // await fetch(url, { method, body: JSON.stringify({ form_schema: schema }) });
+      setSavedServiceId(persistedServiceId);
+      setSimulationLoading(false);
+      dispatch({
+        type: 'LOAD_STATE',
+        state: {
+          ...builderState,
+          metadata: { ...builderState.metadata, serviceId: persistedServiceId },
+        },
+      });
 
       // Clear auto-save on successful save
       autoSaveClear(tenantId, effectiveServiceId);
       setLastAutoSave(null);
-      resetDirty();
       setSaveStatus('saved');
-      toast.saved();
-    } catch (error: any) {
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous);
+        next.set('serviceId', persistedServiceId);
+        return next;
+      }, { replace: true });
+      toast.success('Service draft saved');
+    } catch (error) {
       setSaveStatus('unsaved');
-      if (error?.status === 400) {
-        toast.validationError('Schema validation failed. Check highlighted fields.');
-      } else if (error?.status === 401) {
-        toast.sessionExpired();
-      } else if (error?.status === 403) {
-        toast.error('Permission denied', { description: 'You do not have permission to save this form.' });
-      } else {
-        toast.error('Save failed', { description: 'An error occurred. Please try again.' });
-      }
+      toast.error('Save failed', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+      });
     }
-  }, [builderState, tenantId, effectiveServiceId, resetDirty]);
+  }, [builderState, dispatch, effectiveServiceId, savedServiceId, serviceId, setSearchParams, tenantId]);
+
+  const handleSimulate = useCallback(async () => {
+    const currentServiceId = serviceId || savedServiceId || builderState.metadata.serviceId;
+    if (!currentServiceId) {
+      toast.warning('Save the draft before running simulation.');
+      return;
+    }
+    if (isDirty) {
+      toast.warning('Save your changes before running simulation.');
+      return;
+    }
+
+    setSimulationLoading(true);
+    try {
+      const result = await producerService.simulateService(currentServiceId);
+      const failedChecks = result.checks.filter((check) => !check.passed);
+      if (!result.passed || failedChecks.length > 0) {
+        toast.error('Simulation failed; the draft was retained', {
+          description: failedChecks.map((check) => check.id).join(', ') || 'Review the service configuration.',
+        });
+        return;
+      }
+      toast.success('Simulation passed; the service is ready for approval');
+    } catch (error) {
+      toast.error('Simulation failed', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+      });
+    } finally {
+      setSimulationLoading(false);
+    }
+  }, [builderState.metadata.serviceId, isDirty, savedServiceId, serviceId]);
 
   // ---------------------------------------------------------------------------
   // Publish flow
@@ -347,14 +393,29 @@ export default function FormBuilder({
       return;
     }
 
-    try {
-      // In a real app:
-      // await fetch(`/api/producer/services/${effectiveServiceId}/publish`, { method: 'POST' });
-      toast.published();
-    } catch (error: any) {
-      toast.error('Publish failed', { description: 'An error occurred. Please try again.' });
+    const currentServiceId = serviceId || savedServiceId || builderState.metadata.serviceId;
+    if (!currentServiceId) {
+      toast.warning('Save the draft before requesting publication.');
+      return;
     }
-  }, [isDirty, effectiveServiceId]);
+
+    try {
+      const simulation = await producerService.simulateService(currentServiceId);
+      const failedChecks = simulation.checks.filter((check) => !check.passed);
+      if (!simulation.passed || failedChecks.length > 0) {
+        toast.error('Simulation failed; publication was not requested', {
+          description: failedChecks.map((check) => check.id).join(', ') || 'Review the service configuration.',
+        });
+        return;
+      }
+      await producerService.publishService(currentServiceId);
+      toast.success('Publication request sent for maker-checker approval');
+    } catch (error) {
+      toast.error('Publish request failed', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+      });
+    }
+  }, [builderState.metadata.serviceId, isDirty, savedServiceId, serviceId]);
 
   // ---------------------------------------------------------------------------
   // Import / Export
@@ -440,6 +501,13 @@ export default function FormBuilder({
     [dispatch]
   );
 
+  const handleUpdateMetadata = useCallback(
+    (updates: Partial<BuilderMetadata>) => {
+      dispatch({ type: 'UPDATE_METADATA', updates });
+    },
+    [dispatch]
+  );
+
   const handleAddCrossFieldRule = useCallback(
     (rule: BuilderCrossFieldRule) => {
       dispatch({ type: 'ADD_CROSS_FIELD_RULE', rule });
@@ -496,6 +564,49 @@ export default function FormBuilder({
         )}
 
         <div className="flex flex-col h-full">
+          <div className="grid grid-cols-1 gap-3 border-b border-border bg-background p-3 sm:grid-cols-2 xl:grid-cols-4">
+            <label className="text-xs font-medium text-muted-foreground">
+              Service name
+              <input
+                value={builderState.metadata.serviceName}
+                onChange={(event) => handleUpdateMetadata({ serviceName: event.target.value })}
+                className="mt-1 block w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                maxLength={160}
+                required
+              />
+            </label>
+            <label className="text-xs font-medium text-muted-foreground">
+              Category
+              <input
+                value={builderState.metadata.category}
+                onChange={(event) => handleUpdateMetadata({ category: event.target.value })}
+                className="mt-1 block w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                maxLength={120}
+                required
+              />
+            </label>
+            <label className="text-xs font-medium text-muted-foreground">
+              Description
+              <input
+                value={builderState.metadata.description}
+                onChange={(event) => handleUpdateMetadata({ description: event.target.value })}
+                className="mt-1 block w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+                maxLength={1000}
+              />
+            </label>
+            <label className="text-xs font-medium text-muted-foreground">
+              SLA (days)
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={builderState.metadata.slaDays ?? 30}
+                onChange={(event) => handleUpdateMetadata({ slaDays: Number(event.target.value) || 1 })}
+                className="mt-1 block w-full rounded border border-border bg-card px-2 py-1.5 text-sm text-foreground"
+              />
+            </label>
+          </div>
+
           {/* Toolbar */}
           <Toolbar
             canUndo={canUndo}
@@ -508,6 +619,9 @@ export default function FormBuilder({
             onUndo={() => dispatch({ type: 'UNDO' })}
             onRedo={() => dispatch({ type: 'REDO' })}
             onSave={handleSave}
+            onSimulate={handleSimulate}
+            canSimulate={Boolean(serviceId || savedServiceId || builderState.metadata.serviceId)}
+            simulationLoading={simulationLoading}
             onPublish={handlePublish}
             onImport={handleImport}
             onExport={handleExport}

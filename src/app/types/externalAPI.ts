@@ -22,6 +22,23 @@ export interface ServiceFormSchema {
 
   // Form fields (follows JSON Schema standard)
   fields: FormField[];
+  sections?: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    fieldIds: string[];
+  }>;
+  crossFieldRules?: Array<{
+    type: string;
+    fields: string[];
+    targetField?: string;
+    targetValue?: unknown;
+    message?: string;
+  }>;
+  layout?: {
+    columns?: number;
+    gap?: string;
+  };
 
   // Document requirements
   documents: DocumentRequirement[];
@@ -43,7 +60,7 @@ export interface ServiceFormSchema {
 
 export interface FormField {
   id: string;
-  type: 'text' | 'number' | 'email' | 'phone' | 'date' | 'dropdown' | 'radio' | 'checkbox' | 'file' | 'textarea';
+  type: 'text' | 'number' | 'email' | 'phone' | 'date' | 'dropdown' | 'radio' | 'checkbox' | 'file' | 'textarea' | 'payment';
   label: string;
   placeholder?: string;
   helpText?: string;

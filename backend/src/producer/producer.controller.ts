@@ -168,7 +168,7 @@ export class ProducerController {
     @Body() dto: UpdateApplicationStatusDto,
     @CurrentUser() actor: any,
   ) {
-    return { success: true, data: await this.producerService.updateApplicationStatus(tenantId, applicationId, dto.status, dto.stage, dto.notes, dto.deficiencyDueAt, actor) };
+    return { success: true, data: await this.producerService.updateApplicationStatus(tenantId, applicationId, dto.status, dto.stage, dto.notes, dto.deficiencyDueAt, actor, dto.action) };
   }
 
   @Post('applications/:applicationId/assign')

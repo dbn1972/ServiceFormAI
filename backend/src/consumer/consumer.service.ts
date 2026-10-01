@@ -21,6 +21,8 @@ import { AppealCase } from '../database/entities/appeal-case.entity';
 import { CitizenFeedback } from '../database/entities/citizen-feedback.entity';
 import { ApplicationOutput } from '../database/entities/application-output.entity';
 import { S3StorageService } from '../upload/s3-storage.service';
+import { evaluateEligibilityRules } from '../validation/eligibility-rules';
+import { firstHumanWorkflowStage, WorkflowRuntimeStage } from '../producer/workflow-runtime';
 
 function escapeLikePattern(str: string): string {
   return str.replace(/[%_\\]/g, '\\$&');
@@ -337,6 +339,19 @@ export class ConsumerService {
       throw new NotFoundException('Service not found');
     }
 
+    const allowedEligibilityFields = new Set<string>(
+      Array.isArray(service.form_schema?.fields)
+        ? service.form_schema.fields
+            .map((field: { id?: unknown }) => field.id)
+            .filter((id: unknown): id is string => typeof id === 'string')
+        : [],
+    );
+    const eligibilityResult = evaluateEligibilityRules(
+      service.eligibility_rules,
+      formData,
+      allowedEligibilityFields,
+    );
+
     // ── Schema version conflict check ──────────────────────────────────────
     // If the client provided a schema version, verify it matches the current
     // service schema version. If not, return a 409 with a field-level diff.
@@ -425,7 +440,12 @@ export class ConsumerService {
     }
     const resolvedApplicationId = draft?.id ?? applicationId;
     const trackingNumber = draft?.tracking_number ?? this.generateTrackingNumber();
-    const firstStage = service.workflow_config?.stages?.[0]?.name || 'Submitted';
+    const workflowStages = Array.isArray(service.workflow_config?.stages)
+      ? service.workflow_config.stages as WorkflowRuntimeStage[]
+      : [];
+    const firstStage = firstHumanWorkflowStage(workflowStages)?.id
+      || workflowStages[0]?.name
+      || 'Submitted';
     const submittedAt = new Date();
 
     // ── Queue-first write path ──────────────────────────────────────────────
@@ -445,6 +465,7 @@ export class ConsumerService {
           consumerId,
           consumerSource,
           formData,
+          eligibilityResult,
           status: 'submitted',
           currentStage: firstStage,
           trackingNumber,
@@ -482,6 +503,7 @@ export class ConsumerService {
       consumer_id: consumerId,
       consumer_source: consumerSource,
       form_data: formData,
+      eligibility_result: eligibilityResult,
       status: 'submitted',
       current_stage: firstStage,
       tracking_number: trackingNumber,
@@ -777,6 +799,20 @@ export class ConsumerService {
       throw new BadRequestException('No open deficiency found for this application.');
     }
 
+    const service = await this.tenantServiceRepository.findOne({
+      where: { id: application.service_id, tenant_id: application.tenant_id, archived: false },
+    });
+    const stages = Array.isArray(service?.workflow_config?.stages)
+      ? service.workflow_config.stages as Array<{ id: string; name?: string; nextStages?: string[] }>
+      : [];
+    const currentStage = stages.find((stage) =>
+      stage.id === application.current_stage || stage.name === application.current_stage,
+    );
+    const nextStageId = currentStage?.nextStages?.[0];
+    const nextStage = nextStageId
+      ? stages.find((stage) => stage.id === nextStageId || stage.name === nextStageId)
+      : null;
+
     if (payload.formData && Object.keys(payload.formData).length > 0) {
       application.form_data = {
         ...(application.form_data || {}),
@@ -785,7 +821,7 @@ export class ConsumerService {
     }
 
     application.status = 'UNDER_REVIEW';
-    application.current_stage = 'Deficiency Response Submitted';
+    application.current_stage = nextStage?.id ?? nextStageId ?? 'under_review';
     await this.applicationRepository.save(application);
 
     await this.applicationEventRepository.save(

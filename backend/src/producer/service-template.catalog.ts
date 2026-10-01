@@ -61,9 +61,12 @@ function makeTemplate(input: {
     ...(input.sections ? { sections: input.sections } : {}),
   };
   const workflowStages = input.workflowStages ?? [
-      { id: 'submitted', name: 'Submitted', role: 'system' },
-      { id: 'under_review', name: 'Under review', role: 'officer' },
-      { id: 'completed', name: 'Completed', role: 'approver' },
+      { id: 'submitted', name: 'Submitted', role: 'system', assignedRole: 'system', actions: ['submit'], nextStages: ['review'], slaHours: 24 },
+      { id: 'review', name: 'Review', role: 'officer', assignedRole: 'officer', actions: ['forward', 'raise_deficiency'], nextStages: ['approval', 'pending_documents'], slaHours: 72 },
+      { id: 'approval', name: 'Approval', role: 'approver', assignedRole: 'approver', actions: ['approve', 'reject', 'raise_deficiency'], nextStages: ['completed', 'pending_documents', 'rejected'], slaHours: 48 },
+      { id: 'pending_documents', name: 'Additional information required', role: 'citizen', assignedRole: 'citizen', actions: ['submit_evidence'], nextStages: ['review'], slaHours: 168 },
+      { id: 'completed', name: 'Completed', role: 'system', assignedRole: 'system', actions: [], nextStages: [] },
+      { id: 'rejected', name: 'Rejected', role: 'system', assignedRole: 'system', actions: [], nextStages: [] },
     ];
   const workflowConfig = { stages: workflowStages };
   const requiredDocuments = input.documents.map((document) => ({

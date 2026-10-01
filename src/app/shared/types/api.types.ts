@@ -515,8 +515,12 @@ export interface CreateServiceDto {
   category: string;
   formSchema: FormSchema;
   workflowConfig?: WorkflowConfig;
+  eligibilityRules?: Record<string, any>;
+  requiredDocuments?: Array<string | Record<string, any>>;
   manifest?: Record<string, any>;
   serviceScope?: TenantService['serviceScope'];
+  slaDays?: number;
+  fees?: number;
 }
 
 export interface UpdateServiceDto {
@@ -525,9 +529,13 @@ export interface UpdateServiceDto {
   category?: string;
   formSchema?: FormSchema;
   workflowConfig?: WorkflowConfig;
+  eligibilityRules?: Record<string, any>;
+  requiredDocuments?: Array<string | Record<string, any>>;
   isPublished?: boolean;
   manifest?: Record<string, any>;
   serviceScope?: TenantService['serviceScope'];
+  slaDays?: number;
+  fees?: number;
 }
 
 // Application DTOs
@@ -555,6 +563,7 @@ export interface SaveApplicationDraftResponse {
 
 export interface UpdateApplicationStatusDto {
   status: ApplicationStatus;
+  action?: string;
   stage?: string;
   notes?: string;
 }

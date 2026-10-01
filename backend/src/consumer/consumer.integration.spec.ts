@@ -352,7 +352,12 @@ describe('Consumer integration — queue-first write path', () => {
   afterEach(async () => { await app.close(); });
 
   it('submitApplication enqueues application.persist when queue is enabled', async () => {
-    serviceRepo.findOne.mockResolvedValue(testTenantService());
+    serviceRepo.findOne.mockResolvedValue(testTenantService({
+      eligibility_rules: {
+        mode: 'rule-based',
+        rules: [{ id: 'name-present', field: 'full_name', operator: 'exists' }],
+      },
+    }));
     applicationRepo.findOne.mockResolvedValue(null); // no idempotency match
 
     // Consent not required
@@ -367,7 +372,15 @@ describe('Consumer integration — queue-first write path', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED);
     expect(mockQueue.enqueueWriteCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'application.persist' }),
+      expect.objectContaining({
+        type: 'application.persist',
+        payload: expect.objectContaining({
+          eligibilityResult: expect.objectContaining({
+            outcome: 'eligible_for_review',
+            requiresHumanDecision: true,
+          }),
+        }),
+      }),
     );
     // Should NOT hit the repository directly
     expect(applicationRepo.save).not.toHaveBeenCalled();
@@ -398,7 +411,12 @@ describe('Consumer integration — direct-write fallback', () => {
   afterEach(async () => { await app.close(); });
 
   it('submitApplication writes directly to DB when queue is disabled', async () => {
-    serviceRepo.findOne.mockResolvedValue(testTenantService());
+    serviceRepo.findOne.mockResolvedValue(testTenantService({
+      eligibility_rules: {
+        mode: 'rule-based',
+        rules: [{ id: 'name-present', field: 'full_name', operator: 'exists' }],
+      },
+    }));
     applicationRepo.findOne.mockResolvedValue(null);
     applicationRepo.create.mockReturnValue(testApplication());
     applicationRepo.save.mockResolvedValue(testApplication());
@@ -413,6 +431,12 @@ describe('Consumer integration — direct-write fallback', () => {
 
     expect(res.status).toBe(HttpStatus.CREATED);
     expect(applicationRepo.save).toHaveBeenCalled();
+    expect(applicationRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      eligibility_result: expect.objectContaining({
+        outcome: 'eligible_for_review',
+        requiresHumanDecision: true,
+      }),
+    }));
     expect(res.body.data).toMatchObject({ status: 'submitted', queued: false });
   });
 });
