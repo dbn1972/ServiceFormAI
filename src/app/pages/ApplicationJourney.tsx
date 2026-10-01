@@ -97,7 +97,11 @@ function getJourneySections(service: TenantService | null, schema: ServiceSchema
       id: section.id,
       title: section.title,
       description: section.description,
-      fieldIds: section.fields,
+      fieldIds: Array.isArray((section as any).fieldIds)
+        ? (section as any).fieldIds
+        : Array.isArray((section as any).fields)
+          ? (section as any).fields
+          : [],
     }));
   }
 
@@ -449,13 +453,13 @@ export default function ApplicationJourney() {
         documents: Object.entries(selectedDocs)
           .filter(([, attached]) => attached)
           .map(([name]) => ({ name })),
-        formData,
+        formData: finalFormData,
       });
       lastSavedDraftRef.current = null;
 
       navigate(`/applications/${application.id}/confirmation`, {
         state: {
-          application,
+          application: { ...application, formData: finalFormData },
           service,
         },
       });

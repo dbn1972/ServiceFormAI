@@ -13,6 +13,7 @@ import {
   IndianRupee,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { consumerService } from '../services/api/index';
 import { useApi } from '../shared/hooks';
 import type { TenantService } from '../shared/types';
@@ -129,6 +130,7 @@ const fallbackServices: CatalogCard[] = [
 ];
 
 export default function ServiceCatalog() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const { data, loading, error, execute } = useApi<CatalogCard[]>();
@@ -148,6 +150,7 @@ export default function ServiceCatalog() {
   }, [execute, query, selectedCategory]);
 
   const services = data && data.length > 0 ? data : filterFallbackServices(fallbackServices, query, selectedCategory);
+  const hasLiveServices = Boolean(data && data.length > 0);
 
   const featuredServices = useMemo(
     () => services.filter((service) => service.featured).slice(0, 3),
@@ -233,7 +236,14 @@ export default function ServiceCatalog() {
                   <h3 className="font-semibold mb-2">{service.name}</h3>
                   <p className="text-sm text-muted-foreground mb-1">{service.department}</p>
                   <p className="text-xs text-muted-foreground mb-4">{service.description}</p>
-                  <button className="text-sm font-medium text-primary hover:underline flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (hasLiveServices) navigate(`/services/${encodeURIComponent(service.id)}`);
+                    }}
+                    disabled={!hasLiveServices}
+                    className="text-sm font-medium text-primary hover:underline flex items-center gap-1"
+                  >
                     Learn more
                     <ChevronRight className="w-4 h-4" />
                   </button>
@@ -283,7 +293,14 @@ export default function ServiceCatalog() {
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{service.category}</span>
-                    <button className="text-primary font-medium hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hasLiveServices) navigate(`/applications/new?serviceId=${encodeURIComponent(service.id)}`);
+                      }}
+                      disabled={!hasLiveServices}
+                      className="text-primary font-medium hover:underline"
+                    >
                       Apply →
                     </button>
                   </div>
@@ -315,7 +332,14 @@ export default function ServiceCatalog() {
 
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">{service.category}</span>
-                    <button className="text-primary font-medium hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (hasLiveServices) navigate(`/applications/new?serviceId=${encodeURIComponent(service.id)}`);
+                      }}
+                      disabled={!hasLiveServices}
+                      className="text-primary font-medium hover:underline"
+                    >
                       Apply →
                     </button>
                   </div>
