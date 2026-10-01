@@ -144,7 +144,7 @@ describe('validate() with custom validators', () => {
   });
 
   it('passes (value, formData, field) to the custom validator', () => {
-    const spy = vi.fn<ValidationError[], [unknown, FormData, FormField]>(() => []);
+    const spy = jest.fn<ValidationError[], [unknown, FormData, FormField]>(() => []);
     customValidatorRegistry.register('spy_validator', spy);
 
     const field = customField('myField', 'My Field', 'spy_validator');
@@ -241,7 +241,7 @@ describe('validate() with custom validators', () => {
   });
 
   it('does not invoke custom validator when field has no customValidation', () => {
-    const spy = vi.fn(() => []);
+    const spy = jest.fn(() => []);
     customValidatorRegistry.register('should_not_run', spy);
 
     const schema = makeSchema([
